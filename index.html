@@ -1539,6 +1539,12 @@ async function askJarvis(question){
 }
 
 // ---------- IA: GEMINI (chave gratuita do próprio visitante) OU OLLAMA (no PC) ----------
+function contextoAgora(){
+  const d = new Date();
+  return '\n\nData e hora atuais do usuário (use isto para responder sobre data, dia da semana ou hora): ' +
+    d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) + ', ' +
+    d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + '.';
+}
 const GEMINI_MODELO_PADRAO = 'gemini-2.5-flash';
 
 function getIaConfig(){
@@ -1553,7 +1559,7 @@ async function perguntarGemini(question){
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: JARVIS_SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: JARVIS_SYSTEM_PROMPT + contextoAgora() }] },
       contents: [{ role: 'user', parts: [{ text: question }] }]
     })
   });
@@ -1579,7 +1585,7 @@ async function perguntarOllama(question){
       model: OLLAMA_MODEL,
       stream: false,
       messages: [
-        { role: 'system', content: JARVIS_SYSTEM_PROMPT },
+        { role: 'system', content: JARVIS_SYSTEM_PROMPT + contextoAgora() },
         { role: 'user', content: question }
       ]
     })
