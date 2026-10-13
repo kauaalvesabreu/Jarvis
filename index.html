@@ -1651,7 +1651,7 @@ function mensagemErroIA(err){
     if(err.status === 400 || err.status === 403) return 'O Google recusou a chave de IA, senhor. Confira a chave nas Configurações.';
     if(err.status === 404) return 'O modelo de IA configurado não existe mais. Troque o nome do modelo nas Configurações.';
     if(err.status === 429) return 'O limite gratuito da IA foi atingido por agora, senhor. Tente de novo em alguns minutos.';
-    return 'A IA do Google não respondeu como esperado, senhor.';
+    return 'A IA do Google não respondeu como esperado (erro ' + err.status + (err.message ? ': ' + String(err.message).slice(0,140) : '') + '), senhor.';
   }
   return 'Ainda não tenho uma IA conectada, senhor. Abra as Configurações e cole uma chave gratuita do Google, ou rode o Ollama no seu PC.';
 }
@@ -2118,11 +2118,19 @@ askJarvis = async function(question){
   let rotXv=0,rotYv=0.004,scaleT=1,scaleC=1,maoAtiva=false,lastPalm=null,lastDist=null;
   let handsModel=null,handsOn=false,stream=null,lineMat=null,fillMat=null;
 
-  function carregarScript(src){
+  function carregarScript(src,ms){
     return new Promise((ok,err)=>{
-      const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=()=>err(new Error('falha ao carregar '+src));
+      const s=document.createElement('script'); s.src=src;
+      const t=setTimeout(()=>{s.remove();err(new Error('tempo esgotado '+src));},ms||15000);
+      s.onload=()=>{clearTimeout(t);ok();};
+      s.onerror=()=>{clearTimeout(t);err(new Error('falha ao carregar '+src));};
       document.head.appendChild(s);
     });
+  }
+  async function carregarThree(){
+    const urls=['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js','https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js','https://unpkg.com/three@0.128.0/build/three.min.js'];
+    for(const u of urls){ try{ await carregarScript(u,12000); if(window.THREE) return true; }catch(e){} }
+    return false;
   }
   const setStatus=t=>{statusEl.textContent=t;};
   const norm=t=>(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
@@ -2131,6 +2139,12 @@ askJarvis = async function(question){
   const cil=(p,r,h,rot)=>({t:'cylinder',p,s:[r,h],r:rot||[0,0,0]});
   const BIB=[
     {re:/\b(cubo|caixa)\b/, f:()=>[{t:'box',p:[0,0,0],s:[1.2,1.2,1.2]},{t:'box',p:[0,0,0],s:[.6,.6,.6],r:[45,45,0]}]},
+    {re:/\b(circulo|disco|anel|aro|roda)\b/, f:()=>[{t:'torus',p:[0,0,0],s:[1,.04]},{t:'torus',p:[0,0,0],s:[.75,.025]},{t:'torus',p:[0,0,0],s:[.5,.025]},{t:'torus',p:[0,0,0],s:[.25,.02]},{t:'cylinder',p:[0,0,0],s:[1,.04],r:[90,0,0]}]},
+    {re:/\b(cilindro|lata|tubo)\b/, f:()=>[{t:'cylinder',p:[0,0,0],s:[.7,1.6]}]},
+    {re:/\b(cone|funil)\b/, f:()=>[{t:'cone',p:[0,0,0],s:[.8,1.6]}]},
+    {re:/\b(computador|pc|notebook|laptop)\b/, f:()=>[{t:'box',p:[0,-.35,.2],s:[1.8,.08,1.2]},{t:'box',p:[0,.35,-.4],s:[1.8,1.1,.06],r:[-12,0,0]},{t:'box',p:[0,-.3,.25],s:[1.4,.02,.7]}]},
+    {re:/\b(cadeira|banco)\b/, f:()=>[{t:'box',p:[0,0,0],s:[1,.1,1]},{t:'box',p:[0,.6,-.45],s:[1,1.1,.08]},{t:'box',p:[.42,-.5,.42],s:[.08,.9,.08]},{t:'box',p:[-.42,-.5,.42],s:[.08,.9,.08]},{t:'box',p:[.42,-.5,-.42],s:[.08,.9,.08]},{t:'box',p:[-.42,-.5,-.42],s:[.08,.9,.08]}]},
+    {re:/\b(espada)\b/, f:()=>[{t:'box',p:[0,.6,0],s:[.14,1.8,.03]},{t:'cone',p:[0,1.6,0],s:[.1,.3],seg:4},{t:'box',p:[0,-.35,0],s:[.7,.08,.1]},{t:'cylinder',p:[0,-.7,0],s:[.05,.6]},{t:'sphere',p:[0,-1.05,0],s:[.1]}]},
     {re:/\b(esfera|bola)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[1]},{t:'torus',p:[0,0,0],s:[1,.01],r:[90,0,0]}]},
     {re:/\b(piramide)\b/, f:()=>[{t:'cone',p:[0,0,0],s:[1,1.4],seg:4,r:[0,45,0]}]},
     {re:/\b(terra|planeta|mundo|globo)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[1]},{t:'torus',p:[0,0,0],s:[1.5,.02],r:[80,0,0]},{t:'torus',p:[0,0,0],s:[1.8,.01],r:[80,0,0]}]},
@@ -2311,24 +2325,37 @@ askJarvis = async function(question){
   async function abrirHolograma(nome){
     nome=(nome||'').replace(/[.!?]+$/,'').trim().replace(/^(um|uma|o|a)\s+/i,'')||'cubo';
     ov.classList.add('open');
-    setStatus('GERANDO HOLOGRAMA DE '+nome.toUpperCase()+'...');
+    nomeEl.textContent='HOLOGRAMA';
+    setStatus('CARREGANDO MOTOR 3D...');
+    let tick=null;
     try{
-      if(!window.THREE) await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
+      if(!window.THREE){
+        const ok=await carregarThree();
+        if(!ok){ setStatus('NÃO CONSEGUI BAIXAR O MOTOR 3D. VERIFIQUE A INTERNET E TENTE DE NOVO.'); return 'Não consegui carregar o motor 3D, senhor. Verifique a conexão e tente de novo.'; }
+      }
+      try{ iniciarThree(); redim(); }
+      catch(e){ setStatus('SEU NAVEGADOR NÃO CONSEGUIU INICIAR O 3D (WEBGL).'); return 'Seu navegador não conseguiu iniciar os gráficos 3D, senhor. Tente o Chrome atualizado.'; }
+      if(!raf) raf=requestAnimationFrame(loop);
+      const t0=Date.now();
+      setStatus('GERANDO HOLOGRAMA DE '+nome.toUpperCase()+'...');
+      tick=setInterval(()=>setStatus('A IA ESTÁ MONTANDO "'+nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
+      let r;
+      try{
+        r=await Promise.race([gerarPartes(nome),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),60000))]);
+      }catch(e){
+        const m=(e&&e.tipo==='gemini')?mensagemErroIA(e):(String(e&&e.message)==='tempo'?'A IA demorou demais, senhor. Tente de novo ou peça um objeto mais simples.':(/Failed to fetch|Ainda não/.test(String(e&&e.message))?mensagemErroIA(e):'Não consegui montar esse objeto, senhor. Tente descrevê-lo de outra forma.'));
+        setStatus(m.toUpperCase());
+        return m;
+      }finally{ clearInterval(tick); }
+      mostrar(r.partes,nome);
+      iniciarMaos();
+      return `Holograma de ${nome} projetado, senhor. Mova as mãos diante da câmera para girá-lo.`;
     }catch(e){
-      setStatus('FALHA AO CARREGAR O MOTOR 3D. VERIFIQUE A INTERNET.');
-      return 'Não consegui carregar o motor 3D, senhor. Verifique a conexão.';
+      if(tick) clearInterval(tick);
+      const m='Ocorreu um erro ao projetar o holograma: '+(e&&e.message?e.message:e);
+      setStatus(m.toUpperCase());
+      return m;
     }
-    iniciarThree(); redim();
-    if(!raf) raf=requestAnimationFrame(loop);
-    let r;
-    try{ r=await gerarPartes(nome); }
-    catch(e){
-      setStatus('NÃO CONSEGUI MONTAR "'+nome.toUpperCase()+'". TENTE OUTRO OBJETO.');
-      return (e&&e.tipo==='gemini')||/Failed to fetch/.test(String(e&&e.message))? mensagemErroIA(e) : 'Não consegui montar esse objeto, senhor. Tente descrevê-lo de outra forma.';
-    }
-    mostrar(r.partes,nome);
-    iniciarMaos();
-    return `Holograma de ${nome} projetado, senhor. Mova as mãos diante da câmera para girá-lo.`;
   }
   function fechar(){
     ov.classList.remove('open'); pararMaos();
