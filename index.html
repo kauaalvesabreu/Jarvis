@@ -967,7 +967,7 @@ body.gamer-mode .projection-cone{
 
       <div class="notice">
         Este painel já <b>ouve, responde qualquer pergunta com IA, fala de volta e reconhece objetos pela câmera</b>, direto no navegador.
-        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão C · hologramas + IA com reserva</span>
+        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão D · modelos base + refino com IA</span>
       </div>
     </div>
 
@@ -1603,38 +1603,52 @@ function usandoGemini(){ return !!getIaConfig().chave; }
 async function perguntarGemini(question, opts){
   opts = opts || {};
   const { chave, modelo } = getIaConfig();
-  // Se o modelo escolhido estiver sobrecarregado/indisponível, tenta outros gratuitos em sequência
-  const fila = [modelo, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'].filter((m, i, a) => m && a.indexOf(m) === i);
-  let ultimoErro = null;
-  for(const m of fila){
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: opts.system || (JARVIS_SYSTEM_PROMPT + contextoAgora()) }] },
-        contents: [{ role: 'user', parts: [{ text: question }] }]
-        ,
-        ...(opts.json ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 30000, temperature: 0.5 } } : {})
-      })
+  let lembrado = ''; try{ lembrado = localStorage.getItem('jarvis_modelo_ok') || ''; }catch(e){}
+  const fila = [modelo, lembrado, 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'].filter((m, i, a) => m && a.indexOf(m) === i);
+  const prio = { 503: 5, 429: 4, 500: 3, 404: 1 };
+  let melhorErro = null;
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const montar = (m, comPensamento) => {
+    const gc = {};
+    if(opts.json){ gc.responseMimeType = 'application/json'; gc.maxOutputTokens = 30000; gc.temperature = 0.5; }
+    if(opts.json && comPensamento){
+      if(/gemini-3/.test(m)) gc.thinkingConfig = { thinkingLevel: 'low' };
+      else if(/gemini-2\.5-flash/.test(m)) gc.thinkingConfig = { thinkingBudget: 0 };
+    }
+    return JSON.stringify({
+      systemInstruction: { parts: [{ text: opts.system || (JARVIS_SYSTEM_PROMPT + contextoAgora()) }] },
+      contents: [{ role: 'user', parts: [{ text: question }] }],
+      ...(Object.keys(gc).length ? { generationConfig: gc } : {})
     });
-    if(!resp.ok){
+  };
+  for(const m of fila){
+    let comPensamento = true;
+    for(let tentativa = 0; tentativa < 3; tentativa++){
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+        body: montar(m, comPensamento)
+      });
+      if(resp.ok){
+        const data = await resp.json();
+        const partes = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+        const texto = partes ? partes.map(p => p.text || '').join('').trim() : '';
+        if(texto){ try{ localStorage.setItem('jarvis_modelo_ok', m); }catch(e){} return texto; }
+        break;
+      }
       let detalhe = '';
       try{ const e = await resp.json(); detalhe = (e.error && e.error.message) || ''; }catch(_){}
       const erro = new Error(detalhe || ('Gemini respondeu com status ' + resp.status));
-      erro.tipo = 'gemini';
-      erro.status = resp.status;
-      ultimoErro = erro;
-      // chave inválida não adianta trocar de modelo; os outros erros tentam o próximo
+      erro.tipo = 'gemini'; erro.status = resp.status;
+      // configuração de "pensamento" não aceita por esse modelo: tenta de novo sem ela
+      if(resp.status === 400 && comPensamento && /think/i.test(detalhe)){ comPensamento = false; tentativa--; continue; }
       if(resp.status === 400 || resp.status === 401 || resp.status === 403) throw erro;
-      continue;
+      if(!melhorErro || (prio[erro.status] || 0) >= (prio[melhorErro.status] || 0)) melhorErro = erro;
+      if(resp.status === 503 && tentativa < 2){ await esperar(1500 * (tentativa + 1)); continue; }
+      break;
     }
-    const data = await resp.json();
-    const partes = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-    const texto = partes ? partes.map(p => p.text || '').join('').trim() : '';
-    if(texto) return texto;
-    ultimoErro = new Error('resposta vazia'); ultimoErro.tipo = 'gemini'; ultimoErro.status = 0;
   }
-  throw ultimoErro || new Error('Gemini indisponível');
+  throw melhorErro || new Error('Gemini indisponível');
 }
 
 async function perguntarOllama(question, opts){
@@ -2165,11 +2179,11 @@ askJarvis = async function(question){
     {simples:true,re:/\b(terra|planeta|mundo|globo)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[1]},{t:'torus',p:[0,0,0],s:[1.5,.02],r:[80,0,0]},{t:'torus',p:[0,0,0],s:[1.8,.01],r:[80,0,0]}]},
     {simples:true,re:/\b(atomo)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[.25]},{t:'torus',p:[0,0,0],s:[1,.015],r:[0,0,0]},{t:'torus',p:[0,0,0],s:[1,.015],r:[60,0,0]},{t:'torus',p:[0,0,0],s:[1,.015],r:[-60,0,0]},{t:'sphere',p:[1,0,0],s:[.08]},{t:'sphere',p:[-.5,.87,0],s:[.08]},{t:'sphere',p:[-.5,-.87,0],s:[.08]}]},
     {simples:true,re:/\b(dna|adn|helice)\b/, f:()=>{const a=[];for(let i=0;i<20;i++){const y=-1.5+i*.16,ang=i*.5;const x=Math.cos(ang)*.45,z=Math.sin(ang)*.45;a.push({t:'sphere',p:[x,y,z],s:[.06]},{t:'sphere',p:[-x,y,-z],s:[.06]},{t:'cylinder',p:[0,y,0],s:[.015,.9],r:[0,-ang*57.3,90]});}return a;}},
-    {re:/\b(carro|automovel|carrao)\b/, f:()=>[{t:'box',p:[0,0,0],s:[2.2,.5,1]},{t:'box',p:[-.1,.4,0],s:[1.1,.45,.9]},cil([.7,-.25,.5],.28,.15,[90,0,0]),cil([.7,-.25,-.5],.28,.15,[90,0,0]),cil([-.7,-.25,.5],.28,.15,[90,0,0]),cil([-.7,-.25,-.5],.28,.15,[90,0,0]),{t:'box',p:[1.12,.05,.3],s:[.05,.12,.2]},{t:'box',p:[1.12,.05,-.3],s:[.05,.12,.2]}]},
-    {re:/\b(foguete|nave)\b/, f:()=>[cil([0,0,0],.4,1.8),{t:'cone',p:[0,1.2,0],s:[.4,.7]},{t:'box',p:[.5,-.7,0],s:[.5,.5,.06],r:[0,0,-20]},{t:'box',p:[-.5,-.7,0],s:[.5,.5,.06],r:[0,0,20]},{t:'box',p:[0,-.7,.5],s:[.06,.5,.5],r:[20,0,0]},{t:'box',p:[0,-.7,-.5],s:[.06,.5,.5],r:[-20,0,0]},{t:'sphere',p:[0,.3,.38],s:[.14]},{t:'cone',p:[0,-1.15,0],s:[.25,.4],r:[180,0,0]}]},
-    {re:/\b(casa|predio|lar)\b/, f:()=>[{t:'box',p:[0,0,0],s:[1.6,1,1.4]},{t:'cone',p:[0,.95,0],s:[1.3,.9],seg:4,r:[0,45,0]},{t:'box',p:[0,-.2,.71],s:[.35,.6,.04]},{t:'box',p:[.5,.1,.71],s:[.3,.3,.04]},{t:'box',p:[-.5,.1,.71],s:[.3,.3,.04]},{t:'box',p:[.5,1.1,.2],s:[.2,.5,.2]}]},
+    {re:/\b(carro|automovel|carrao)\b/, f:()=>[{"t":"extrude","poly":[[-2.3,0.3],[2.3,0.3],[2.38,0.55],[2.05,0.72],[0.95,0.8],[-1.9,0.82],[-2.3,0.72]],"d":1.8},{"t":"extrude","poly":[[-1.05,0.8],[-0.65,1.22],[0.5,1.22],[1.15,0.8]],"d":1.5},{"t":"extrude","poly":[[-0.85,0.86],[-0.55,1.16],[0.4,1.16],[0.9,0.86]],"d":1.56,"c":"w"},{"t":"lathe","pf":[[0.18,-0.14],[0.38,-0.14],[0.42,-0.08],[0.42,0.08],[0.38,0.14],[0.18,0.14]],"seg":20,"r":[90,0,0],"p":[1.45,0.42,0.84],"m":"xz"},{"t":"cylinder","s":[0.27,0.3],"seg":10,"r":[90,0,0],"p":[1.45,0.42,0.84],"m":"xz","c":"w"},{"t":"cylinder","s":[0.07,0.34],"seg":8,"r":[90,0,0],"p":[1.45,0.42,0.84],"m":"xz"},{"t":"box","s":[0.06,0.1,0.4],"p":[2.36,0.6,0.6],"m":"z","c":"a"},{"t":"box","s":[0.06,0.1,0.5],"p":[-2.31,0.66,0.55],"m":"z","c":"a"},{"t":"box","s":[0.05,0.12,0.7],"p":[2.4,0.46,0]},{"t":"box","s":[0.14,0.08,0.12],"p":[0.65,0.98,0.95],"m":"z"},{"t":"box","s":[0.45,0.05,1.6],"p":[-2.2,1.02,0]},{"t":"box","s":[0.1,0.22,0.05],"p":[-2.12,0.9,0.5],"m":"z"},{"t":"cylinder","s":[0.05,0.3],"seg":8,"r":[0,0,90],"p":[-2.4,0.32,0.5],"m":"z"},{"t":"box","s":[2.4,0.07,0.04],"p":[0.0,0.34,0.92],"m":"z"},{"t":"box","s":[0.35,0.04,1.8],"p":[2.48,0.28,0]},{"t":"box","s":[0.03,0.5,0.03],"p":[0.15,0.55,0.91],"m":"z"},{"t":"box","s":[0.03,0.5,0.03],"p":[-0.7,0.55,0.91],"m":"z"}]},
+    {re:/\b(foguete|nave)\b/, f:()=>[{"t":"lathe","pf":[[0,2.9],[0.1,2.75],[0.22,2.4],[0.33,1.9],[0.4,1.4],[0.43,0.9],[0.43,-1.2],[0.4,-1.35]],"seg":28},{"t":"lathe","pf":[[0.2,-1.3],[0.22,-1.55],[0.34,-2.0],[0.31,-2.0],[0.18,-1.6]],"seg":20},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,1.2,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,0.4,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,-0.4,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,-1.1,0]},{"t":"torus","s":[0.15,0.02],"p":[0,1.5,0.41],"c":"w"},{"t":"sphere","s":[0.12,0.12,0.03],"p":[0,1.5,0.4],"c":"w"},{"t":"extrude","poly":[[0.4,0.1],[1.05,-0.95],[1.05,-1.55],[0.4,-1.2]],"d":0.06,"m":"x"},{"t":"extrude","poly":[[0.4,0.1],[1.05,-0.95],[1.05,-1.55],[0.4,-1.2]],"d":0.06,"r":[0,90,0],"m":"z"},{"t":"cone","s":[0.18,0.6],"seg":12,"p":[0,-2.2,0],"r":[180,0,0],"c":"a"},{"t":"cone","s":[0.1,0.9],"seg":10,"p":[0,-2.45,0],"r":[180,0,0],"c":"a"},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[0.3111269837220809,0.4,0.31112698372208086]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[-0.31112698372208086,0.4,0.3111269837220809]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[-0.311126983722081,0.4,-0.31112698372208086]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[0.31112698372208086,0.4,-0.311126983722081]}]},
+    {re:/\b(casa|predio|lar)\b/, f:()=>[{"t":"box","s":[2.6,1.3,1.9],"p":[0,0.65,0]},{"t":"extrude","poly":[[-1.5,0],[1.5,0],[0,0.95]],"d":2.2,"p":[0,1.3,0]},{"t":"box","s":[0.45,0.9,0.05],"p":[0,0.45,0.96]},{"t":"box","s":[0.5,0.04,0.35],"p":[0,0.02,1.15]},{"t":"box","s":[0.04,0.04,0.04],"p":[0.15,0.5,1.0],"c":"a"},{"t":"box","s":[0.42,0.42,0.05],"p":[0.8,0.8,0.96],"m":"x","c":"w"},{"t":"box","s":[0.03,0.42,0.06],"p":[0.8,0.8,0.96],"m":"x"},{"t":"box","s":[0.42,0.03,0.06],"p":[0.8,0.8,0.96],"m":"x"},{"t":"box","s":[0.05,0.42,0.42],"p":[1.31,0.8,0.0],"m":"x","c":"w"},{"t":"box","s":[0.22,0.7,0.22],"p":[0.7,2.05,-0.3]},{"t":"box","s":[0.3,0.06,0.3],"p":[0.7,2.4,-0.3]},{"t":"extrude","poly":[[-0.28,0],[0.28,0],[0,0.4]],"d":0.05,"p":[0,1.3,1.09],"c":"w"},{"t":"box","s":[0.16,0.06,0.16],"p":[0,1.6,0.0],"c":"a"}]},
     {re:/\b(robo|android)\b/, f:()=>[{t:'box',p:[0,0,0],s:[.9,1.1,.5]},{t:'box',p:[0,.95,0],s:[.6,.5,.5]},{t:'sphere',p:[.15,1,.26],s:[.07]},{t:'sphere',p:[-.15,1,.26],s:[.07]},{t:'cylinder',p:[0,1.35,0],s:[.02,.3]},{t:'sphere',p:[0,1.55,0],s:[.06]},{t:'box',p:[.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[-.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[.25,-1,0],s:[.3,.9,.3]},{t:'box',p:[-.25,-1,0],s:[.3,.9,.3]}]},
-    {re:/\b(aviao|jato)\b/, f:()=>[cil([0,0,0],.25,2.4,[0,0,90]),{t:'cone',p:[1.5,0,0],s:[.25,.6],r:[0,0,-90]},{t:'box',p:[.1,0,0],s:[.6,.05,2.4]},{t:'box',p:[-1,.25,0],s:[.35,.5,.05]},{t:'box',p:[-1,.05,0],s:[.35,.05,.9]}]},
+    {re:/\b(aviao|jato)\b/, f:()=>[{"t":"lathe","pf":[[0,2.8],[0.18,2.65],[0.34,2.2],[0.42,1.6],[0.45,1.0],[0.45,-1.4],[0.36,-2.3],[0.18,-2.9],[0.05,-3.1]],"seg":24,"r":[0,0,-90]},{"t":"extrude","poly":[[0.7,0.38],[-0.5,3.4],[-1.05,3.4],[-0.85,0.38]],"d":0.07,"r":[90,0,0],"p":[0,-0.12,0],"m":"z"},{"t":"extrude","poly":[[-2.1,0.4],[-3.0,1.6],[-3.4,1.6],[-3.0,0.4]],"d":0.07},{"t":"extrude","poly":[[-2.5,0.3],[-3.1,1.3],[-3.45,1.3],[-3.1,0.3]],"d":0.06,"r":[90,0,0],"p":[0,0.15,0],"m":"z"},{"t":"lathe","pf":[[0.16,0.45],[0.2,0.38],[0.2,-0.35],[0.15,-0.5]],"seg":14,"r":[0,0,-90],"p":[0.25,-0.34,1.3],"m":"z"},{"t":"lathe","pf":[[0.16,0.45],[0.2,0.38],[0.2,-0.35],[0.15,-0.5]],"seg":14,"r":[0,0,-90],"p":[-0.1,-0.34,2.4],"m":"z"},{"t":"torus","s":[0.15,0.02],"r":[0,90,0],"p":[0.7,-0.34,1.3],"m":"z","c":"w"},{"t":"torus","s":[0.15,0.02],"r":[0,90,0],"p":[0.35,-0.34,2.4],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[1.25,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[1.06,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.87,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.6799999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.49,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.30000000000000004,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.10999999999999988,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.08000000000000007,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.27,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.45999999999999996,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.6499999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.8399999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-1.0300000000000002,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-1.2200000000000002,0.12,0.44],"m":"z","c":"w"},{"t":"extrude","poly":[[2.3,0.1],[2.55,0.3],[2.15,0.34],[1.95,0.1]],"d":0.62,"c":"w"},{"t":"box","s":[0.2,0.05,0.05],"p":[-0.78,-0.1,3.42],"m":"z","c":"a"}]},
     {re:/\b(arvore)\b/, f:()=>[cil([0,-.6,0],.12,.8),{t:'cone',p:[0,.1,0],s:[.7,.9]},{t:'cone',p:[0,.7,0],s:[.55,.8]},{t:'cone',p:[0,1.2,0],s:[.4,.7]}]},
     {re:/\b(mesa)\b/, f:()=>[{t:'box',p:[0,.4,0],s:[1.8,.1,1]},{t:'box',p:[.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[.8,-.1,-.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,-.4],s:[.1,.9,.1]}]}
   ];
@@ -2306,7 +2320,8 @@ askJarvis = async function(question){
 
   function mostrar(partes,nome){
     if(modelo){scene.remove(modelo);}
-    modelo=construir(partes); modelo.rotation.set(.25,0,0); scaleT=scaleC=1; rotYv=.01;
+    const rotAnt=modelo?{x:modelo.rotation.x,y:modelo.rotation.y}:null;
+    modelo=construir(partes); modelo.rotation.set(rotAnt?rotAnt.x:.25,rotAnt?rotAnt.y:0,0); if(!rotAnt){scaleT=scaleC=1;} rotYv=.01;
     scene.add(modelo);
     nomeEl.textContent='HOLOGRAMA: '+nome.toUpperCase();
   }
@@ -2337,8 +2352,10 @@ askJarvis = async function(question){
       setStatus('MOSTRE UMA OU DUAS MÃOS PARA A CÂMERA');
     }
   }
+  let iniciandoMaos=false;
   async function iniciarMaos(){
-    if(handsOn) return;
+    if(handsOn||iniciandoMaos) return;
+    iniciandoMaos=true;
     try{
       setStatus('ATIVANDO CÂMERA E RASTREAMENTO DE MÃOS...');
       stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:640,height:480}});
@@ -2356,10 +2373,12 @@ askJarvis = async function(question){
         requestAnimationFrame(ciclo);
       })();
       setStatus('MOSTRE UMA OU DUAS MÃOS PARA A CÂMERA');
+      iniciandoMaos=false;
     }catch(e){
       handsOn=false;
       setStatus('SEM CÂMERA: ARRASTE COM O MOUSE/DEDO PARA GIRAR E USE A RODA PARA O TAMANHO');
     }
+    iniciandoMaos=false;
   }
   function pararMaos(){
     handsOn=false; maoAtiva=false; vid.classList.remove('on');
@@ -2389,7 +2408,7 @@ Cada parte é um objeto com:
 - "c": cor opcional: "w" (branco, para vidros, faróis, detalhes brilhantes) ou "a" (âmbar, para luzes, lanternas, brasas, display). Sem "c" = ciano padrão.
 
 Regras de qualidade:
-- Use entre 50 e 140 partes. Quanto mais detalhes reais, melhor (peças menores, acabamentos, componentes internos visíveis, proporções corretas).
+- Use entre 40 e 90 partes. Priorize os detalhes que mais definem o objeto (silhueta correta, proporções reais, peças características). Seja eficiente: não repita partes que o espelhamento "m" já cria.
 - Dê ao objeto proporções reais e a orientação natural: a frente aponta para +x, o topo para +y.
 - As partes devem se encaixar e se tocar de forma coerente, formando um objeto reconhecível visto de qualquer ângulo.
 - O tamanho absoluto não importa (é normalizado), mas mantenha as proporções entre as peças.
@@ -2468,18 +2487,26 @@ Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo 
       catch(e){ setStatus('SEU NAVEGADOR NÃO CONSEGUIU INICIAR O 3D (WEBGL).'); return 'Seu navegador não conseguiu iniciar os gráficos 3D, senhor. Tente o Chrome atualizado.'; }
       if(!raf) raf=requestAnimationFrame(loop);
       const t0=Date.now();
-      setStatus('GERANDO HOLOGRAMA DE '+nome.toUpperCase()+'...');
-      tick=setInterval(()=>setStatus('A IA ESTÁ MODELANDO (PODE LEVAR ATÉ 1 MIN) "'+nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
+      const n0=norm(nome); let previa=false;
+      const libB=BIB.find(b=>b.re.test(n0));
+      if(libB && !libB.simples && !lerCache()[n0]){
+        try{ mostrar(limparPartes(libB.f()),nome); previa=true; iniciarMaos(); }catch(e){}
+      }
+      setStatus(previa?'MODELO BASE PRONTO. A IA ESTÁ REFINANDO...':'GERANDO HOLOGRAMA DE '+nome.toUpperCase()+'...');
+      tick=setInterval(()=>setStatus((previa?'MODELO BASE PRONTO. A IA ESTÁ REFINANDO "':'A IA ESTÁ MODELANDO "')+nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
       let r;
       try{
         r=await Promise.race([gerarPartes(nome),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
       }catch(e){
         const m=(e&&e.tipo==='gemini')?mensagemErroIA(e):(String(e&&e.message)==='tempo'?'A IA demorou demais, senhor. Tente de novo ou peça um objeto mais simples.':(/Failed to fetch|Ainda não/.test(String(e&&e.message))?mensagemErroIA(e):'Não consegui montar esse objeto, senhor. Tente descrevê-lo de outra forma.'));
-        setStatus(m.toUpperCase());
-        return m;
+        setStatus(previa?'IA INDISPONÍVEL AGORA. MANTIVE O MODELO BASE.':m.toUpperCase());
+        return previa?'A IA está indisponível agora, senhor, então mantive o modelo base. '+m:m;
       }finally{ clearInterval(tick); }
-      try{ mostrar(r.partes,nome); }
-      catch(e){ setStatus('O MODELO GERADO ESTAVA INVÁLIDO. TENTE DE NOVO.'); return 'O modelo que a IA montou veio com defeito, senhor. Tente de novo.'; }
+      if(!(previa && r.origem==='basico')){
+        try{ mostrar(r.partes,nome); }
+        catch(e){ if(!previa){ setStatus('O MODELO GERADO ESTAVA INVÁLIDO. TENTE DE NOVO.'); return 'O modelo que a IA montou veio com defeito, senhor. Tente de novo.'; } }
+      }
+      setStatus('PRONTO. MOSTRE AS MÃOS PARA A CÂMERA PARA GIRAR.');
       iniciarMaos();
       if(r.origem==='basico') return `A IA não conseguiu detalhar ${nome} agora, senhor, então projetei o modelo básico. Mova as mãos diante da câmera para girá-lo.`;
       return `Holograma de ${nome} projetado, senhor. Mova as mãos diante da câmera para girá-lo.`;
