@@ -967,7 +967,7 @@ body.gamer-mode .projection-cone{
 
       <div class="notice">
         Este painel já <b>ouve, responde qualquer pergunta com IA, fala de volta e reconhece objetos pela câmera</b>, direto no navegador.
-        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão D · modelos base + refino com IA</span>
+        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão E · hologramas ajustáveis</span>
       </div>
     </div>
 
@@ -1004,8 +1004,10 @@ body.gamer-mode .projection-cone{
   <canvas id="holoHandCanvas"></canvas>
   <div class="holo-top"><div id="holoNome">HOLOGRAMA</div><div id="holoStatus"></div></div>
   <div class="holo-bar">
-    <input type="text" id="holoInput" placeholder="Outro objeto: carro, foguete, átomo, dinossauro..." autocomplete="off">
-    <button id="holoGo">GERAR</button>
+    <input type="text" id="holoInput" placeholder="Objeto novo (ex.: dragão) ou, para AJUSTAR: deixe mais longo..." autocomplete="off">
+    <button id="holoGo">GERAR NOVO</button>
+    <button id="holoAdjust">AJUSTAR</button>
+    <button id="holoMore">+ DETALHES</button>
     <button id="holoHandsBtn">MÃOS ON/OFF</button>
     <button id="holoClose">FECHAR</button>
   </div>
@@ -2143,7 +2145,7 @@ askJarvis = async function(question){
   const inp=document.getElementById('holoInput');
   const COR=0x45e8ff;
 
-  let renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
+  let atual=null,renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
   let rotXv=0,rotYv=0.004,scaleT=1,scaleC=1,maoAtiva=false,lastPalm=null,lastDist=null;
   let handsModel=null,handsOn=false,stream=null,lineMat=null,fillMat=null;
 
@@ -2198,11 +2200,13 @@ askJarvis = async function(question){
     lista.slice(0,220).forEach(p=>{
       if(!p||typeof p!=='object') return;
       const t=String(p.t||'').toLowerCase();
-      if(!['box','sphere','cylinder','cone','torus','lathe','extrude','tube'].includes(t)) return;
+      if(!['box','sphere','cylinder','cone','torus','lathe','extrude','tube','capsule'].includes(t)) return;
       const pos=nums(p.p,3); while(pos.length<3) pos.push(0);
       const rot=nums(p.r,3); while(rot.length<3) rot.push(0);
       const sz=nums(p.s,3).map(x=>Math.max(.003,Math.abs(x)));
       const pt={t,p:pos,r:rot,s:sz,seg:Math.max(3,Math.min(48,Math.round(num(p.seg,16)))),c:(p.c==='a'||p.c==='w')?p.c:'c',m:(p.m==='x'||p.m==='z'||p.m==='xz')?p.m:''};
+      const arr=nums(p.a,4); if(arr.length>=4 && arr[0]>=2){ pt.a=[Math.min(60,Math.round(arr[0])),arr[1],arr[2],arr[3]]; }
+      const oo=Math.round(num(p.o,0)); if(oo>=2){ pt.o=Math.min(24,oo); }
       if(t==='lathe'){ pt.pf=pares(p.pf,40,2).map(q=>[Math.abs(q[0]),q[1]]); if(pt.pf.length<2) return; }
       else if(t==='extrude'){ pt.poly=pares(p.poly,60,2); if(pt.poly.length<3) return; pt.d=Math.max(.01,Math.abs(num(p.d,.2))); }
       else if(t==='tube'){ pt.path=pares(p.path,40,3); if(pt.path.length<2) return; if(!sz.length) pt.s=[.03]; }
@@ -2228,6 +2232,14 @@ askJarvis = async function(question){
     if(pt.t==='cylinder'){const g=new THREE.CylinderGeometry(s[0],s[2]??s[0],s[1]??1,pt.seg);return {g,w:new THREE.EdgesGeometry(g,20)};}
     if(pt.t==='cone'){const g=new THREE.ConeGeometry(s[0],s[1]??1,pt.seg);return {g,w:new THREE.EdgesGeometry(g,20)};}
     if(pt.t==='torus'){const g=new THREE.TorusGeometry(s[0],s[1]??.05,8,32);return {g,w:new THREE.WireframeGeometry(g)};}
+    if(pt.t==='capsule'){
+      const r=s[0], L=s[1]??r*2, pf=[[0,-L/2-r]];
+      for(let a=-75;a<=0;a+=15) pf.push([r*Math.cos(a*Math.PI/180),-L/2+r*Math.sin(a*Math.PI/180)]);
+      for(let a=0;a<=75;a+=15) pf.push([r*Math.cos(a*Math.PI/180),L/2+r*Math.sin(a*Math.PI/180)]);
+      pf.push([0,L/2+r]);
+      const g=new THREE.LatheGeometry(pf.map(q=>new THREE.Vector2(q[0],q[1])),14);
+      return {g,w:new THREE.WireframeGeometry(g)};
+    }
     if(pt.t==='lathe'){const g=new THREE.LatheGeometry(pt.pf.map(q=>new THREE.Vector2(q[0],q[1])),Math.max(8,pt.seg));return {g,w:new THREE.WireframeGeometry(g)};}
     if(pt.t==='extrude'){
       const sh=new THREE.Shape(pt.poly.map(q=>new THREE.Vector2(q[0],q[1])));
@@ -2248,18 +2260,24 @@ askJarvis = async function(question){
       let r; try{ r=geoDe(pt); }catch(e){ r=null; }
       if(!r) return;
       const mt=mats(pt.c), d=Math.PI/180;
-      const obj=new THREE.Group();
-      obj.add(new THREE.LineSegments(r.w,mt.line));
-      obj.add(new THREE.Mesh(r.g,mt.fill));
-      obj.position.set(pt.p[0],pt.p[1],pt.p[2]);
-      obj.rotation.set(pt.r[0]*d,pt.r[1]*d,pt.r[2]*d);
+      const base=new THREE.Group();
+      base.add(new THREE.LineSegments(r.w,mt.line));
+      base.add(new THREE.Mesh(r.g,mt.fill));
+      base.rotation.set(pt.r[0]*d,pt.r[1]*d,pt.r[2]*d);
+      const na=pt.a?pt.a[0]:1, no=pt.o||1;
       const flips=pt.m==='x'?[[1,1],[-1,1]]:pt.m==='z'?[[1,1],[1,-1]]:pt.m==='xz'?[[1,1],[-1,1],[1,-1],[-1,-1]]:[[1,1]];
-      flips.forEach((f,i)=>{
-        if(i===0){g.add(obj);return;}
-        const copia=new THREE.Group(); copia.scale.set(f[0],1,f[1]);
-        copia.add(obj.clone());
-        g.add(copia);
-      });
+      if(na*no*flips.length>400) return;
+      for(let ia=0;ia<na;ia++){
+        const o1=base.clone();
+        o1.position.set(pt.p[0]+(pt.a?pt.a[1]*ia:0),pt.p[1]+(pt.a?pt.a[2]*ia:0),pt.p[2]+(pt.a?pt.a[3]*ia:0));
+        for(let io=0;io<no;io++){
+          const gi=new THREE.Group(); gi.rotation.y=io*2*Math.PI/no; gi.add(o1.clone());
+          flips.forEach(f=>{
+            if(f[0]===1&&f[1]===1){ g.add(gi.clone()); return; }
+            const copia=new THREE.Group(); copia.scale.set(f[0],1,f[1]); copia.add(gi.clone()); g.add(copia);
+          });
+        }
+      }
     });
     if(!g.children.length) throw new Error('modelo vazio');
     const box=new THREE.Box3().setFromObject(g);
@@ -2320,6 +2338,7 @@ askJarvis = async function(question){
 
   function mostrar(partes,nome){
     if(modelo){scene.remove(modelo);}
+    atual={nome,partes};
     const rotAnt=modelo?{x:modelo.rotation.x,y:modelo.rotation.y}:null;
     modelo=construir(partes); modelo.rotation.set(rotAnt?rotAnt.x:.25,rotAnt?rotAnt.y:0,0); if(!rotAnt){scaleT=scaleC=1;} rotYv=.01;
     scene.add(modelo);
@@ -2387,41 +2406,53 @@ askJarvis = async function(question){
   }
 
   // ---------- Geração ----------
+  const EXEMPLO_CAO=[{"t":"sphere","s":[0.9,0.45,0.4],"p":[0,1.1,0]},{"t":"sphere","s":[0.5,0.5,0.4],"p":[0.55,1.15,0]},{"t":"capsule","s":[0.22,0.5],"p":[1.05,1.55,0],"r":[0,0,-40]},{"t":"sphere","s":[0.38,0.32,0.3],"p":[1.4,1.85,0]},{"t":"cylinder","s":[0.14,0.45,0.17],"p":[1.78,1.78,0],"r":[0,0,90]},{"t":"sphere","s":[0.07],"p":[2.02,1.8,0],"c":"w"},{"t":"sphere","s":[0.05],"p":[1.6,1.97,0.2],"m":"z","c":"w"},{"t":"cone","s":[0.12,0.35],"p":[1.25,2.2,0.2],"r":[0,0,15],"m":"z"},{"t":"capsule","s":[0.12,0.7],"p":[0.65,0.5,0.28],"m":"z"},{"t":"capsule","s":[0.14,0.65],"p":[-0.6,0.5,0.28],"m":"z"},{"t":"sphere","s":[0.15,0.07,0.12],"p":[0.7,0.07,0.28],"m":"z"},{"t":"sphere","s":[0.15,0.07,0.12],"p":[-0.55,0.07,0.28],"m":"z"},{"t":"tube","path":[[-0.9,1.3,0],[-1.2,1.6,0],[-1.4,2.0,0]],"s":[0.06]}];
   const SISTEMA_3D='Você é um modelador 3D procedural especialista. Você converte o pedido do usuário em um modelo wireframe detalhado, com proporções reais e muitos detalhes, usando apenas as primitivas descritas. Responda SOMENTE com JSON válido.';
-  function promptModelo(nome){
-    return `Monte um modelo 3D DETALHADO e REALISTA de: "${nome}".
-
-Formato (JSON puro, sem markdown): {"nome":"...","partes":[ ... ]}
-
-Cada parte é um objeto com:
-- "t": tipo da primitiva:
+  const REGRAS_3D=`Primitivas ("t"):
   • "box": s=[largura(x),altura(y),profundidade(z)]
-  • "sphere": s=[raio] ou s=[rx,ry,rz] para elipsoide
-  • "cylinder": s=[raioTopo,altura] ou s=[raioTopo,altura,raioBase] (eixo ao longo de y)
+  • "sphere": s=[raio] ou s=[rx,ry,rz] (elipsoide: ótimo para corpos orgânicos, cabeças, olhos, frutas)
+  • "capsule": s=[raio,comprimento] (eixo y; ótimo para braços, pernas, dedos, troncos, pescoços)
+  • "cylinder": s=[raioTopo,altura] ou s=[raioTopo,altura,raioBase] (eixo y)
   • "cone": s=[raio,altura]; "seg" = lados (4 = pirâmide)
   • "torus": s=[raio,espessura] (fica no plano xy)
-  • "lathe": sólido de revolução em torno do eixo y. "pf"=[[raio,y],[raio,y],...] com 8 a 20 pontos, de baixo para cima, desenhando o contorno da peça (use para garrafas, taças, rodas, torres, foguetes, vasos, cúpulas, pneus, copos, peões)
-  • "extrude": silhueta 2D extrudada. "poly"=[[x,y],...] (contorno fechado, 6 a 30 pontos) no plano xy e "d"=espessura em z, centrada em z=0 (use para perfil lateral de carros, asas, lâminas, folhas, chaves, silhuetas)
-  • "tube": cano curvo. "path"=[[x,y,z],...] (3 a 10 pontos) e s=[raio] (use para canos, cabos, antenas, alças, escapamentos)
-- "p": posição [x,y,z] (y é para cima). "r": rotação em graus [x,y,z] (opcional)
-- "m": espelhamento automático para simetria: "x" (espelha em x), "z" (espelha em z) ou "xz" (4 cópias, ótimo para rodas). Use "m" em vez de repetir partes simétricas.
-- "c": cor opcional: "w" (branco, para vidros, faróis, detalhes brilhantes) ou "a" (âmbar, para luzes, lanternas, brasas, display). Sem "c" = ciano padrão.
+  • "lathe": revolução em torno do eixo y. "pf"=[[raio,y],...] com 8 a 20 pontos, de baixo para cima (garrafas, taças, rodas, torres, foguetes, vasos, cúpulas, pneus, copos, sinos)
+  • "extrude": silhueta 2D extrudada. "poly"=[[x,y],...] (6 a 30 pontos, contorno fechado) no plano xy e "d"=espessura em z (perfil lateral de carros, asas, lâminas, folhas, chaves, telhados, escudos)
+  • "tube": cano curvo. "path"=[[x,y,z],...] (3 a 10 pontos), s=[raio] (rabos, cabos, canos, antenas, alças, tentáculos, galhos)
+Campos comuns: "p"=[x,y,z] posição (y para cima); "r"=[x,y,z] rotação em graus; "c"="w" (branco: vidros, olhos, brilhos) ou "a" (âmbar: luzes, fogo, displays); sem "c" = ciano.
+Ferramentas de repetição (use SEMPRE que houver partes repetidas, economiza muito):
+  • "m":"x" | "z" | "xz": espelha (simetria esquerda/direita, rodas, patas, asas, olhos)
+  • "a":[n,dx,dy,dz]: repete n vezes, deslocando (dx,dy,dz) a cada cópia (janelas, andares, degraus, dentes, costelas, teclas, grades)
+  • "o":n: repete n vezes em círculo em torno do eixo y que passa pela origem (colunas ao redor, pétalas, pás de hélice, raios de roda, torres de um castelo)
+Dicas de qualidade:
+  • Corpos orgânicos (animais, pessoas, plantas): elipsoides + cápsulas + tubos; cabeça, pescoço, tronco, membros com as proporções reais; olhos, orelhas, rabo.
+  • Veículos: extrude para o perfil lateral, lathe para rodas/pneus, caixas finas para vidros (c:"w") e luzes (c:"a").
+  • Construções/máquinas: caixas e cilindros combinados, com arrays para janelas, andares e detalhes.
+  • Pessoa em pé: cabeça ≈ 1/7,5 da altura total; braços chegam até o meio da coxa.
+  • Frente do objeto aponta para +x. O tamanho absoluto não importa (é normalizado), só as proporções.`;
+  function promptModelo(nome){
+    return `Monte um modelo 3D DETALHADO e com PROPORÇÕES REAIS de: "${nome}".
 
-Regras de qualidade:
-- Use entre 40 e 90 partes. Priorize os detalhes que mais definem o objeto (silhueta correta, proporções reais, peças características). Seja eficiente: não repita partes que o espelhamento "m" já cria.
-- Dê ao objeto proporções reais e a orientação natural: a frente aponta para +x, o topo para +y.
-- As partes devem se encaixar e se tocar de forma coerente, formando um objeto reconhecível visto de qualquer ângulo.
-- O tamanho absoluto não importa (é normalizado), mas mantenha as proporções entre as peças.
-- Rotação de cilindro: um cilindro com "r":[90,0,0] fica com o eixo ao longo de z (bom para rodas de veículo com frente em +x).
+Formato (JSON puro): {"plano":"2 a 4 frases com as dimensões relativas e os componentes principais","nome":"...","partes":[ ... ]}
+Escreva primeiro o "plano" (pense nas proporções e na posição de cada componente) e só depois as "partes".
 
-Exemplo parcial (carro): [
-{"t":"extrude","poly":[[-2.2,0],[2.2,0],[2.2,0.55],[1.5,0.7],[0.8,1.15],[-0.9,1.15],[-1.6,0.75],[-2.2,0.65]],"d":1.7,"p":[0,0.3,0]},
-{"t":"lathe","pf":[[0.15,-0.15],[0.4,-0.15],[0.45,-0.05],[0.45,0.05],[0.4,0.15],[0.15,0.15]],"seg":20,"r":[90,0,0],"p":[1.4,0.42,0.9],"m":"xz"},
-{"t":"cylinder","s":[0.22,0.3],"seg":10,"r":[90,0,0],"p":[1.4,0.42,0.9],"m":"xz","c":"w"},
-{"t":"box","s":[0.05,0.14,0.4],"p":[2.2,0.75,0.55],"m":"z","c":"a"},
-{"t":"box","s":[1.3,0.35,0.02],"p":[0,1.2,0.86],"m":"z","c":"w"}
-]
-Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo de "${nome}".`;
+${REGRAS_3D}
+
+Regras:
+- Use entre 40 e 100 partes (peças repetidas contam uma vez graças a m/a/o). Priorize a silhueta correta e os detalhes que definem o objeto.
+- As partes devem se encaixar e se tocar de forma coerente, reconhecível de qualquer ângulo. Nada flutuando.
+- Rotação de cilindro: "r":[90,0,0] deixa o eixo ao longo de z; "r":[0,0,90] deixa ao longo de x.
+
+Exemplo 1 (cachorro, estilo orgânico): ${JSON.stringify(EXEMPLO_CAO)}
+Exemplo 2 (trecho de um carro): [{"t":"extrude","poly":[[-2.2,0],[2.2,0],[2.2,0.55],[1.5,0.7],[0.8,1.15],[-0.9,1.15],[-1.6,0.75],[-2.2,0.65]],"d":1.7,"p":[0,0.3,0]},{"t":"lathe","pf":[[0.15,-0.15],[0.4,-0.15],[0.45,-0.05],[0.45,0.05],[0.4,0.15],[0.15,0.15]],"seg":20,"r":[90,0,0],"p":[1.4,0.42,0.9],"m":"xz"},{"t":"box","s":[0.05,0.14,0.4],"p":[2.2,0.75,0.55],"m":"z","c":"a"}]
+Os exemplos mostram só o formato e o estilo. Faça um modelo MUITO mais completo de "${nome}".`;
+  }
+  function promptAjuste(nome,partes,instrucao){
+    return `Este é o modelo 3D atual de "${nome}" (JSON): ${JSON.stringify({partes})}
+
+Aplique esta instrução: "${instrucao}".
+Devolva o modelo COMPLETO atualizado, no mesmo formato JSON {"plano":"o que você mudou","nome":"...","partes":[...]}, mantendo o que já está bom e corrigindo/adicionando o que foi pedido. Mantenha de 40 a 120 partes.
+
+${REGRAS_3D}`;
   }
   function parseTolerante(txt){
     let t=String(txt||'').replace(/```json|```/gi,'').trim().replace(/([\[,:\s])(-?)\.(\d)/g,'$1$20.$3');
@@ -2435,11 +2466,11 @@ Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo 
     if(k>0){ try{ return JSON.parse(t.slice(0,k+1)+']}'); }catch(e){} }
     throw new Error('json inválido');
   }
-  async function viaIA(nome){
+  async function chamarIA3D(prompt){
     let ultimo;
     for(let tentativa=0;tentativa<2;tentativa++){
       try{
-        const txt=await perguntarIA(promptModelo(nome),{system:SISTEMA_3D,json:true});
+        const txt=await perguntarIA(prompt,{system:SISTEMA_3D,json:true});
         const j=parseTolerante(txt);
         const partes=limparPartes(j.partes);
         if(partes.length<4) throw new Error('modelo pobre');
@@ -2448,6 +2479,7 @@ Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo 
     }
     throw ultimo;
   }
+  const viaIA=nome=>chamarIA3D(promptModelo(nome));
   function lerCache(){try{return JSON.parse(localStorage.getItem('jarvis_holo_cache')||'{}');}catch(e){return {};}}
   function salvarCache(chave,partes){
     try{
@@ -2517,6 +2549,21 @@ Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo 
       return m;
     }
   }
+  let ocupado=false;
+  async function ajustar(instrucao){
+    if(!atual){ setStatus('GERE UM HOLOGRAMA PRIMEIRO.'); return; }
+    if(ocupado) return; ocupado=true;
+    const t0=Date.now();
+    const tk=setInterval(()=>setStatus('A IA ESTÁ AJUSTANDO "'+atual.nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
+    try{
+      const partes=await Promise.race([chamarIA3D(promptAjuste(atual.nome,atual.partes,instrucao)),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
+      const nome=atual.nome;
+      mostrar(partes,nome); salvarCache(norm(nome),partes);
+      setStatus('AJUSTE APLICADO. USE AJUSTAR DE NOVO PARA CONTINUAR MELHORANDO.');
+    }catch(e){
+      setStatus((e&&e.tipo==='gemini'?mensagemErroIA(e):'NÃO CONSEGUI APLICAR O AJUSTE AGORA. TENTE DE NOVO.').toUpperCase());
+    }finally{ clearInterval(tk); ocupado=false; }
+  }
   function fechar(){
     ov.classList.remove('open'); pararMaos();
     if(raf){cancelAnimationFrame(raf);raf=0;}
@@ -2528,6 +2575,8 @@ Isso é só um exemplo de estilo e formato: faça um modelo MUITO mais completo 
     const msg=await abrirHolograma(v); if(msg) addEntry('JARVIS',msg);
   }
   document.getElementById('holoGo').addEventListener('click',gerarDoCampo);
+  document.getElementById('holoAdjust').addEventListener('click',()=>{ const v=inp.value.trim(); if(!v){ setStatus('DIGITE O AJUSTE NO CAMPO. EX.: DEIXE MAIS LONGO, ADICIONE UMA ANTENA'); return; } inp.value=''; ajustar(v); });
+  document.getElementById('holoMore').addEventListener('click',()=>ajustar('Adicione mais detalhes realistas e corrija as proporções, deixando o modelo mais completo e fiel ao objeto real.'));
   inp.addEventListener('keydown',e=>{if(e.key==='Enter')gerarDoCampo();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ov.classList.contains('open'))fechar();});
   window.abrirHolograma=abrirHolograma;
