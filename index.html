@@ -1309,7 +1309,7 @@ function detectarComando(texto){
   }
 
   // "crie um holograma de X" -> projeta um modelo 3D controlado pelas mãos
-  const mh = t.match(/^(?:jarvis[,\s]+)?(?:cri[ae]r?|faz(?:er)?|fa[çc]a|ger[ae]r?|mostr[ae]r?|projet[ae]r?|monte|montar)\s+(?:para\s+mim\s+)?(?:um|uma)?\s*(?:holograma|modelo\s*3d|objeto\s*3d|hologram)\s*(?:de|do|da|d[eo]s?)?\s*(.*)$/);
+  const mh = t.match(/^(?:jarvis[,\s]+)?(?:cri[ae]r?|faz(?:er)?|fa[çc]a|ger[ae]r?|mostr[ae]r?|projet[ae]r?|monte|montar)\s+(?:para\s+mim\s+)?(?:um|uma|o|a|os|as)?\s*(?:holograma|modelo\s*3d|objeto\s*3d|hologram)\s*(?:de|do|da|d[eo]s?)?\s*(.*)$/);
   if(mh){ return { tipo: 'holograma', valor: mh[1].trim() }; }
 
   // "vai para/acessa/entra em/abre o site X" -> sempre tratado como site,
@@ -1603,27 +1603,38 @@ function usandoGemini(){ return !!getIaConfig().chave; }
 async function perguntarGemini(question, opts){
   opts = opts || {};
   const { chave, modelo } = getIaConfig();
-  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: opts.system || (JARVIS_SYSTEM_PROMPT + contextoAgora()) }] },
-      contents: [{ role: 'user', parts: [{ text: question }] }],
-      ...(opts.json ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 30000, temperature: 0.5 } } : {})
-    })
-  });
-  if(!resp.ok){
-    let detalhe = '';
-    try{ const e = await resp.json(); detalhe = (e.error && e.error.message) || ''; }catch(_){}
-    const erro = new Error(detalhe || ('Gemini respondeu com status ' + resp.status));
-    erro.tipo = 'gemini';
-    erro.status = resp.status;
-    throw erro;
+  // Se o modelo escolhido estiver sobrecarregado/indisponível, tenta outros gratuitos em sequência
+  const fila = [modelo, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'].filter((m, i, a) => m && a.indexOf(m) === i);
+  let ultimoErro = null;
+  for(const m of fila){
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: opts.system || (JARVIS_SYSTEM_PROMPT + contextoAgora()) }] },
+        contents: [{ role: 'user', parts: [{ text: question }] }]
+        ,
+        ...(opts.json ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 30000, temperature: 0.5 } } : {})
+      })
+    });
+    if(!resp.ok){
+      let detalhe = '';
+      try{ const e = await resp.json(); detalhe = (e.error && e.error.message) || ''; }catch(_){}
+      const erro = new Error(detalhe || ('Gemini respondeu com status ' + resp.status));
+      erro.tipo = 'gemini';
+      erro.status = resp.status;
+      ultimoErro = erro;
+      // chave inválida não adianta trocar de modelo; os outros erros tentam o próximo
+      if(resp.status === 400 || resp.status === 401 || resp.status === 403) throw erro;
+      continue;
+    }
+    const data = await resp.json();
+    const partes = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+    const texto = partes ? partes.map(p => p.text || '').join('').trim() : '';
+    if(texto) return texto;
+    ultimoErro = new Error('resposta vazia'); ultimoErro.tipo = 'gemini'; ultimoErro.status = 0;
   }
-  const data = await resp.json();
-  const partes = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-  const texto = partes ? partes.map(p => p.text || '').join('').trim() : '';
-  return texto || 'Não consegui processar essa solicitação, senhor.';
+  throw ultimoErro || new Error('Gemini indisponível');
 }
 
 async function perguntarOllama(question, opts){
@@ -1653,6 +1664,7 @@ function mensagemErroIA(err){
   if(err && err.tipo === 'gemini'){
     if(err.status === 400 || err.status === 403) return 'O Google recusou a chave de IA, senhor. Confira a chave nas Configurações.';
     if(err.status === 404) return 'O modelo de IA configurado não existe mais. Troque o nome do modelo nas Configurações.';
+    if(err.status === 503 || err.status === 500) return 'Os servidores gratuitos do Google estão sobrecarregados agora, senhor. Tente de novo em instantes.';
     if(err.status === 429) return 'O limite gratuito da IA foi atingido por agora, senhor. Tente de novo em alguns minutos.';
     return 'A IA do Google não respondeu como esperado (erro ' + err.status + (err.message ? ': ' + String(err.message).slice(0,140) : '') + '), senhor.';
   }
