@@ -770,6 +770,19 @@ body.gamer-mode .projection-cone{
 #welcomeOverlay .wbtn:hover{background:rgba(0,229,255,0.28);}
 #welcomeOverlay input{width:100%;box-sizing:border-box;background:rgba(6,14,20,0.7);border:1px solid var(--line-bright);color:var(--text);font-family:'Rajdhani',sans-serif;font-size:15px;padding:11px 14px;outline:none;margin:6px 0 10px;}
 #welcomeOverlay .wskip{background:none;border:none;color:var(--text);opacity:.55;cursor:pointer;font-family:'Rajdhani',sans-serif;font-size:14px;text-decoration:underline;margin-top:8px;padding:0;}
+#holoOverlay{position:fixed;inset:0;z-index:60;display:none;background:radial-gradient(ellipse at center,rgba(4,22,32,.92) 0%,rgba(2,8,12,.97) 75%);}
+#holoOverlay.open{display:block;}
+#holoVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;transform:scaleX(-1);opacity:0;transition:opacity .6s;filter:grayscale(1) contrast(1.1);}
+#holoVideo.on{opacity:.22;}
+#holoCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;}
+#holoHandCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+#holoOverlay .holo-top{position:absolute;top:18px;left:0;right:0;text-align:center;pointer-events:none;font-family:'Orbitron',sans-serif;}
+#holoNome{font-size:20px;letter-spacing:4px;color:var(--cyan,#45e8ff);text-shadow:0 0 14px rgba(69,232,255,.7);}
+#holoStatus{margin-top:8px;font-size:11px;letter-spacing:2px;color:var(--text);opacity:.8;padding:0 16px;}
+#holoOverlay .holo-bar{position:absolute;bottom:22px;left:0;right:0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;padding:0 16px;}
+#holoOverlay .holo-bar input{width:min(320px,60vw);background:rgba(6,14,20,.75);border:1px solid var(--line-bright);color:var(--text);font-family:'Rajdhani',sans-serif;font-size:15px;padding:10px 14px;outline:none;}
+#holoOverlay .holo-bar button{cursor:pointer;border:1px solid var(--line-bright);background:rgba(0,229,255,.12);color:var(--text);font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;padding:10px 16px;}
+#holoOverlay .holo-bar button:hover{background:rgba(0,229,255,.3);}
 </style>
 </head>
 <body>
@@ -823,7 +836,7 @@ body.gamer-mode .projection-cone{
         A chave fica só neste navegador e é enviada apenas ao Google. Sem chave, o Jarvis tenta o Ollama do seu PC.
       </p>
       <input type="password" id="iaChaveInput" placeholder="Chave da API do Google AI Studio" autocomplete="off" style="width:100%; background:rgba(6,14,20,0.7); border:1px solid var(--line-bright); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:14px; padding:11px 14px; outline:none;">
-      <input type="text" id="iaModeloInput" placeholder="Modelo (padrão: gemini-2.5-flash)" autocomplete="off" style="width:100%; margin-top:8px; background:rgba(6,14,20,0.7); border:1px solid var(--line-bright); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:14px; padding:11px 14px; outline:none;">
+      <input type="text" id="iaModeloInput" placeholder="Modelo (padrão: gemini-3-flash-preview)" autocomplete="off" style="width:100%; margin-top:8px; background:rgba(6,14,20,0.7); border:1px solid var(--line-bright); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:14px; padding:11px 14px; outline:none;">
 
       <p style="font-size:13.5px; color:var(--text-muted); line-height:1.5; margin:18px 0 8px;">
         <b style="color:var(--amber);">Sua cidade</b> — usada no briefing de "bom dia" pra puxar o clima:
@@ -982,6 +995,19 @@ body.gamer-mode .projection-cone{
   <div class="vision-controls">
     <button id="describeBtn">O QUE VOCÊ VÊ?</button>
     <button class="close-btn" id="closeVisionBtn">FECHAR</button>
+  </div>
+</div>
+
+<div id="holoOverlay">
+  <video id="holoVideo" autoplay muted playsinline></video>
+  <canvas id="holoCanvas"></canvas>
+  <canvas id="holoHandCanvas"></canvas>
+  <div class="holo-top"><div id="holoNome">HOLOGRAMA</div><div id="holoStatus"></div></div>
+  <div class="holo-bar">
+    <input type="text" id="holoInput" placeholder="Outro objeto: carro, foguete, átomo, dinossauro..." autocomplete="off">
+    <button id="holoGo">GERAR</button>
+    <button id="holoHandsBtn">MÃOS ON/OFF</button>
+    <button id="holoClose">FECHAR</button>
   </div>
 </div>
 
@@ -1282,6 +1308,10 @@ function detectarComando(texto){
     return { tipo: 'briefing' };
   }
 
+  // "crie um holograma de X" -> projeta um modelo 3D controlado pelas mãos
+  const mh = t.match(/^(?:jarvis[,\s]+)?(?:cri[ae]r?|faz(?:er)?|fa[çc]a|ger[ae]r?|mostr[ae]r?|projet[ae]r?|monte|montar)\s+(?:para\s+mim\s+)?(?:um|uma)?\s*(?:holograma|modelo\s*3d|objeto\s*3d|hologram)\s*(?:de|do|da|d[eo]s?)?\s*(.*)$/);
+  if(mh){ return { tipo: 'holograma', valor: mh[1].trim() }; }
+
   // "vai para/acessa/entra em/abre o site X" -> sempre tratado como site,
   // com busca no Google como último recurso se não for um domínio conhecido
   let m = t.match(/^(vai\s+para|acessa|acessar|entra\s+em|entrar\s+em|abre\s+o\s+site|abrir\s+o\s+site)\s+(.+)$/);
@@ -1472,6 +1502,13 @@ async function askJarvis(question){
       return;
     }
 
+    if(comando.tipo === 'holograma'){
+      const msgH = await abrirHolograma(comando.valor);
+      if(msgH){ addEntry('JARVIS', msgH); speak(msgH); }
+      setCoreState('idle');
+      return;
+    }
+
     if(comando.tipo === 'briefing'){
       addEntry('VOCÊ', question);
       await mostrarBriefing();
@@ -1555,7 +1592,7 @@ function contextoAgora(){
     d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) + ', ' +
     d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + '.';
 }
-const GEMINI_MODELO_PADRAO = 'gemini-flash-latest';
+const GEMINI_MODELO_PADRAO = 'gemini-3-flash-preview';
 
 function getIaConfig(){
   const ler = (k, padrao) => { try{ return localStorage.getItem(k) || padrao; }catch(e){ return padrao; } };
@@ -2063,6 +2100,250 @@ askJarvis = async function(question){
     try{localStorage.setItem('jarvis_boas_vindas_ok','1');}catch(e){}
     ov.classList.remove('open');
   });
+})();
+</script>
+<script>
+(function(){
+  const ov=document.getElementById('holoOverlay');
+  const cv=document.getElementById('holoCanvas');
+  const vid=document.getElementById('holoVideo');
+  const hcv=document.getElementById('holoHandCanvas');
+  const hctx=hcv.getContext('2d');
+  const statusEl=document.getElementById('holoStatus');
+  const nomeEl=document.getElementById('holoNome');
+  const inp=document.getElementById('holoInput');
+  const COR=0x45e8ff;
+
+  let renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
+  let rotXv=0,rotYv=0.004,scaleT=1,scaleC=1,maoAtiva=false,lastPalm=null,lastDist=null;
+  let handsModel=null,handsOn=false,stream=null,lineMat=null,fillMat=null;
+
+  function carregarScript(src){
+    return new Promise((ok,err)=>{
+      const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=()=>err(new Error('falha ao carregar '+src));
+      document.head.appendChild(s);
+    });
+  }
+  const setStatus=t=>{statusEl.textContent=t;};
+  const norm=t=>(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+
+  // ---------- Biblioteca de modelos prontos (primitivas) ----------
+  const cil=(p,r,h,rot)=>({t:'cylinder',p,s:[r,h],r:rot||[0,0,0]});
+  const BIB=[
+    {re:/\b(cubo|caixa)\b/, f:()=>[{t:'box',p:[0,0,0],s:[1.2,1.2,1.2]},{t:'box',p:[0,0,0],s:[.6,.6,.6],r:[45,45,0]}]},
+    {re:/\b(esfera|bola)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[1]},{t:'torus',p:[0,0,0],s:[1,.01],r:[90,0,0]}]},
+    {re:/\b(piramide)\b/, f:()=>[{t:'cone',p:[0,0,0],s:[1,1.4],seg:4,r:[0,45,0]}]},
+    {re:/\b(terra|planeta|mundo|globo)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[1]},{t:'torus',p:[0,0,0],s:[1.5,.02],r:[80,0,0]},{t:'torus',p:[0,0,0],s:[1.8,.01],r:[80,0,0]}]},
+    {re:/\b(atomo)\b/, f:()=>[{t:'sphere',p:[0,0,0],s:[.25]},{t:'torus',p:[0,0,0],s:[1,.015],r:[0,0,0]},{t:'torus',p:[0,0,0],s:[1,.015],r:[60,0,0]},{t:'torus',p:[0,0,0],s:[1,.015],r:[-60,0,0]},{t:'sphere',p:[1,0,0],s:[.08]},{t:'sphere',p:[-.5,.87,0],s:[.08]},{t:'sphere',p:[-.5,-.87,0],s:[.08]}]},
+    {re:/\b(dna|adn|helice)\b/, f:()=>{const a=[];for(let i=0;i<20;i++){const y=-1.5+i*.16,ang=i*.5;const x=Math.cos(ang)*.45,z=Math.sin(ang)*.45;a.push({t:'sphere',p:[x,y,z],s:[.06]},{t:'sphere',p:[-x,y,-z],s:[.06]},{t:'cylinder',p:[0,y,0],s:[.015,.9],r:[0,-ang*57.3,90]});}return a;}},
+    {re:/\b(carro|automovel|carrao)\b/, f:()=>[{t:'box',p:[0,0,0],s:[2.2,.5,1]},{t:'box',p:[-.1,.4,0],s:[1.1,.45,.9]},cil([.7,-.25,.5],.28,.15,[90,0,0]),cil([.7,-.25,-.5],.28,.15,[90,0,0]),cil([-.7,-.25,.5],.28,.15,[90,0,0]),cil([-.7,-.25,-.5],.28,.15,[90,0,0]),{t:'box',p:[1.12,.05,.3],s:[.05,.12,.2]},{t:'box',p:[1.12,.05,-.3],s:[.05,.12,.2]}]},
+    {re:/\b(foguete|nave)\b/, f:()=>[cil([0,0,0],.4,1.8),{t:'cone',p:[0,1.2,0],s:[.4,.7]},{t:'box',p:[.5,-.7,0],s:[.5,.5,.06],r:[0,0,-20]},{t:'box',p:[-.5,-.7,0],s:[.5,.5,.06],r:[0,0,20]},{t:'box',p:[0,-.7,.5],s:[.06,.5,.5],r:[20,0,0]},{t:'box',p:[0,-.7,-.5],s:[.06,.5,.5],r:[-20,0,0]},{t:'sphere',p:[0,.3,.38],s:[.14]},{t:'cone',p:[0,-1.15,0],s:[.25,.4],r:[180,0,0]}]},
+    {re:/\b(casa|predio|lar)\b/, f:()=>[{t:'box',p:[0,0,0],s:[1.6,1,1.4]},{t:'cone',p:[0,.95,0],s:[1.3,.9],seg:4,r:[0,45,0]},{t:'box',p:[0,-.2,.71],s:[.35,.6,.04]},{t:'box',p:[.5,.1,.71],s:[.3,.3,.04]},{t:'box',p:[-.5,.1,.71],s:[.3,.3,.04]},{t:'box',p:[.5,1.1,.2],s:[.2,.5,.2]}]},
+    {re:/\b(robo|android)\b/, f:()=>[{t:'box',p:[0,0,0],s:[.9,1.1,.5]},{t:'box',p:[0,.95,0],s:[.6,.5,.5]},{t:'sphere',p:[.15,1,.26],s:[.07]},{t:'sphere',p:[-.15,1,.26],s:[.07]},{t:'cylinder',p:[0,1.35,0],s:[.02,.3]},{t:'sphere',p:[0,1.55,0],s:[.06]},{t:'box',p:[.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[-.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[.25,-1,0],s:[.3,.9,.3]},{t:'box',p:[-.25,-1,0],s:[.3,.9,.3]}]},
+    {re:/\b(aviao|jato)\b/, f:()=>[cil([0,0,0],.25,2.4,[0,0,90]),{t:'cone',p:[1.5,0,0],s:[.25,.6],r:[0,0,-90]},{t:'box',p:[.1,0,0],s:[.6,.05,2.4]},{t:'box',p:[-1,.25,0],s:[.35,.5,.05]},{t:'box',p:[-1,.05,0],s:[.35,.05,.9]}]},
+    {re:/\b(arvore)\b/, f:()=>[cil([0,-.6,0],.12,.8),{t:'cone',p:[0,.1,0],s:[.7,.9]},{t:'cone',p:[0,.7,0],s:[.55,.8]},{t:'cone',p:[0,1.2,0],s:[.4,.7]}]},
+    {re:/\b(mesa)\b/, f:()=>[{t:'box',p:[0,.4,0],s:[1.8,.1,1]},{t:'box',p:[.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[.8,-.1,-.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,-.4],s:[.1,.9,.1]}]}
+  ];
+
+  // ---------- Construção do holograma ----------
+  const num=(v,d)=>Number.isFinite(+v)?+v:d;
+  function limparPartes(lista){
+    if(!Array.isArray(lista)) return [];
+    return lista.slice(0,80).map(p=>{
+      if(!p||typeof p!=='object') return null;
+      const t=String(p.t||'').toLowerCase();
+      if(!['box','sphere','cylinder','cone','torus'].includes(t)) return null;
+      const a=(v,n,d)=>{const r=Array.isArray(v)?v:[];return Array.from({length:n},(_,i)=>num(r[i],d));};
+      return {t,p:a(p.p,3,0),s:a(p.s,3,.5).map(x=>Math.max(.005,Math.abs(x))),r:a(p.r,3,0),seg:Math.max(3,Math.min(32,num(p.seg,16)))};
+    }).filter(Boolean);
+  }
+  function construir(partes){
+    const g=new THREE.Group();
+    partes.forEach(pt=>{
+      const s=pt.s; let geo,wire;
+      if(pt.t==='box'){geo=new THREE.BoxGeometry(s[0],s[1],s[2]);wire=new THREE.EdgesGeometry(geo);}
+      else if(pt.t==='sphere'){geo=new THREE.SphereGeometry(s[0],16,12);wire=new THREE.WireframeGeometry(geo);}
+      else if(pt.t==='cylinder'){geo=new THREE.CylinderGeometry(s[0],s[0],s[1],pt.seg);wire=new THREE.EdgesGeometry(geo,20);}
+      else if(pt.t==='cone'){geo=new THREE.ConeGeometry(s[0],s[1],pt.seg);wire=new THREE.EdgesGeometry(geo,20);}
+      else {geo=new THREE.TorusGeometry(s[0],s[1],8,32);wire=new THREE.WireframeGeometry(geo);}
+      const o=new THREE.Group();
+      o.add(new THREE.LineSegments(wire,lineMat));
+      o.add(new THREE.Mesh(geo,fillMat));
+      o.position.set(pt.p[0],pt.p[1],pt.p[2]);
+      const d=Math.PI/180; o.rotation.set(pt.r[0]*d,pt.r[1]*d,pt.r[2]*d);
+      g.add(o);
+    });
+    const box=new THREE.Box3().setFromObject(g);
+    const size=box.getSize(new THREE.Vector3()), c=box.getCenter(new THREE.Vector3());
+    const m=Math.max(size.x,size.y,size.z)||1;
+    g.position.sub(c);
+    const wrap=new THREE.Group(); wrap.add(g); wrap.scale.setScalar(2/m);
+    const raiz=new THREE.Group(); raiz.add(wrap);
+    return raiz;
+  }
+
+  function iniciarThree(){
+    if(iniciado) return;
+    renderer=new THREE.WebGLRenderer({canvas:cv,alpha:true,antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+    scene=new THREE.Scene();
+    camera=new THREE.PerspectiveCamera(45,1,.1,50); camera.position.set(0,.3,5);
+    lineMat=new THREE.LineBasicMaterial({color:COR,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    fillMat=new THREE.MeshBasicMaterial({color:COR,transparent:true,opacity:.07,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false});
+    // base do holograma
+    anel=new THREE.Group();
+    [1.5,1.9,2.3].forEach((r,i)=>{
+      const rg=new THREE.Mesh(new THREE.RingGeometry(r-.012,r,i?64:48,1),new THREE.MeshBasicMaterial({color:COR,transparent:true,opacity:.55-i*.12,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+      rg.rotation.x=-Math.PI/2; anel.add(rg);
+    });
+    anel.position.y=-1.45; scene.add(anel);
+    const n=260,pos=new Float32Array(n*3);
+    for(let i=0;i<n;i++){const a=Math.random()*6.283,r=Math.random()*2.2;pos[i*3]=Math.cos(a)*r;pos[i*3+1]=-1.4+Math.random()*3.2;pos[i*3+2]=Math.sin(a)*r;}
+    const pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    particulas=new THREE.Points(pg,new THREE.PointsMaterial({color:COR,size:.02,transparent:true,opacity:.6,blending:THREE.AdditiveBlending,depthWrite:false}));
+    scene.add(particulas);
+    addEventListener('resize',redim);
+    // mouse / toque
+    let arr=false,lx=0,ly=0;
+    cv.addEventListener('pointerdown',e=>{arr=true;lx=e.clientX;ly=e.clientY;cv.setPointerCapture(e.pointerId);});
+    cv.addEventListener('pointerup',()=>{arr=false;});
+    cv.addEventListener('pointermove',e=>{if(!arr)return;rotYv=(e.clientX-lx)*.01;rotXv=(e.clientY-ly)*.01;lx=e.clientX;ly=e.clientY;});
+    cv.addEventListener('wheel',e=>{e.preventDefault();scaleT=Math.max(.3,Math.min(3,scaleT*(e.deltaY<0?1.08:.93)));},{passive:false});
+    iniciado=true;
+  }
+  function redim(){
+    if(!iniciado) return;
+    const w=innerWidth,h=innerHeight;
+    renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+    hcv.width=w; hcv.height=h;
+  }
+  function loop(t){
+    raf=requestAnimationFrame(loop);
+    if(modelo){
+      modelo.rotation.y+=rotYv; modelo.rotation.x+=rotXv;
+      modelo.rotation.x=Math.max(-1.2,Math.min(1.2,modelo.rotation.x));
+      rotXv*=.92;
+      if(!maoAtiva) rotYv=rotYv*.96+.004*.04;
+      scaleC+=(scaleT-scaleC)*.15; modelo.scale.setScalar(scaleC);
+    }
+    lineMat.opacity=.82+.12*Math.sin(t*.012)-(Math.random()<.015?.25:0);
+    anel.rotation.y+=.004; particulas.rotation.y-=.0015;
+    renderer.render(scene,camera);
+  }
+
+  function mostrar(partes,nome){
+    if(modelo){scene.remove(modelo);}
+    modelo=construir(partes); modelo.rotation.set(.25,0,0); scaleT=scaleC=1; rotYv=.01;
+    scene.add(modelo);
+    nomeEl.textContent='HOLOGRAMA: '+nome.toUpperCase();
+  }
+
+  // ---------- Rastreamento de mãos (MediaPipe) ----------
+  const palma=h=>{const ids=[0,5,9,13,17];let x=0,y=0;ids.forEach(i=>{x+=h[i].x;y+=h[i].y;});return {x:1-x/5,y:y/5};};
+  function aoResultado(res){
+    const hs=res.multiHandLandmarks||[];
+    hctx.clearRect(0,0,hcv.width,hcv.height);
+    hs.forEach(h=>{
+      hctx.fillStyle='rgba(69,232,255,.9)';
+      h.forEach(p=>{hctx.beginPath();hctx.arc((1-p.x)*hcv.width,p.y*hcv.height,3.5,0,6.283);hctx.fill();});
+    });
+    maoAtiva=hs.length>0;
+    if(hs.length>=2){
+      const a=palma(hs[0]),b=palma(hs[1]);
+      const d=Math.hypot(a.x-b.x,a.y-b.y);
+      if(lastDist) scaleT=Math.max(.3,Math.min(3,scaleT*(d/lastDist)));
+      lastDist=d; lastPalm=null;
+      setStatus('DUAS MÃOS: AFASTE OU APROXIME PARA MUDAR O TAMANHO');
+    } else if(hs.length===1){
+      const p=palma(hs[0]); lastDist=null;
+      if(lastPalm){rotYv=(p.x-lastPalm.x)*5; rotXv=(p.y-lastPalm.y)*5;}
+      lastPalm=p;
+      setStatus('UMA MÃO: MOVA PARA GIRAR O HOLOGRAMA');
+    } else {
+      lastPalm=null; lastDist=null;
+      setStatus('MOSTRE UMA OU DUAS MÃOS PARA A CÂMERA');
+    }
+  }
+  async function iniciarMaos(){
+    if(handsOn) return;
+    try{
+      setStatus('ATIVANDO CÂMERA E RASTREAMENTO DE MÃOS...');
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:640,height:480}});
+      vid.srcObject=stream; await vid.play();
+      if(!window.Hands) await carregarScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js');
+      if(!handsModel){
+        handsModel=new window.Hands({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/'+f});
+        handsModel.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
+        handsModel.onResults(aoResultado);
+      }
+      handsOn=true; vid.classList.add('on');
+      (async function ciclo(){
+        if(!handsOn) return;
+        if(vid.readyState>=2){try{await handsModel.send({image:vid});}catch(e){}}
+        requestAnimationFrame(ciclo);
+      })();
+      setStatus('MOSTRE UMA OU DUAS MÃOS PARA A CÂMERA');
+    }catch(e){
+      handsOn=false;
+      setStatus('SEM CÂMERA: ARRASTE COM O MOUSE/DEDO PARA GIRAR E USE A RODA PARA O TAMANHO');
+    }
+  }
+  function pararMaos(){
+    handsOn=false; maoAtiva=false; vid.classList.remove('on');
+    if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+    hctx.clearRect(0,0,hcv.width,hcv.height);
+  }
+
+  // ---------- Geração ----------
+  async function gerarPartes(nome){
+    const n=norm(nome);
+    for(const b of BIB){ if(b.re.test(n)) return {partes:limparPartes(b.f()),origem:'pronto'}; }
+    const prompt=`Você é um gerador de modelos 3D simples. Monte o objeto "${nome}" usando APENAS primitivas geométricas. Responda SOMENTE com JSON válido, sem texto antes ou depois e sem markdown, neste formato: {"partes":[{"t":"box","p":[0,0,0],"s":[1,1,1],"r":[0,0,0]}]}. Regras: "t" pode ser box (s=[largura,altura,profundidade]), sphere (s=[raio]), cylinder (s=[raio,altura]), cone (s=[raio,altura]) ou torus (s=[raio,espessura]). "p" é a posição [x,y,z] (y é para cima). "r" é a rotação em graus [x,y,z]. Use de 12 a 40 partes, bem posicionadas e encostando umas nas outras, de forma que o objeto seja reconhecível visto de qualquer lado. Mantenha tudo dentro de -2 a 2.`;
+    const txt=await perguntarIA(prompt);
+    const m=txt.match(/\{[\s\S]*\}/);
+    if(!m) throw new Error('sem json');
+    const j=JSON.parse(m[0]);
+    const partes=limparPartes(j.partes);
+    if(partes.length<2) throw new Error('modelo vazio');
+    return {partes,origem:'ia'};
+  }
+
+  async function abrirHolograma(nome){
+    nome=(nome||'').replace(/[.!?]+$/,'').trim().replace(/^(um|uma|o|a)\s+/i,'')||'cubo';
+    ov.classList.add('open');
+    setStatus('GERANDO HOLOGRAMA DE '+nome.toUpperCase()+'...');
+    try{
+      if(!window.THREE) await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
+    }catch(e){
+      setStatus('FALHA AO CARREGAR O MOTOR 3D. VERIFIQUE A INTERNET.');
+      return 'Não consegui carregar o motor 3D, senhor. Verifique a conexão.';
+    }
+    iniciarThree(); redim();
+    if(!raf) raf=requestAnimationFrame(loop);
+    let r;
+    try{ r=await gerarPartes(nome); }
+    catch(e){
+      setStatus('NÃO CONSEGUI MONTAR "'+nome.toUpperCase()+'". TENTE OUTRO OBJETO.');
+      return (e&&e.tipo==='gemini')||/Failed to fetch/.test(String(e&&e.message))? mensagemErroIA(e) : 'Não consegui montar esse objeto, senhor. Tente descrevê-lo de outra forma.';
+    }
+    mostrar(r.partes,nome);
+    iniciarMaos();
+    return `Holograma de ${nome} projetado, senhor. Mova as mãos diante da câmera para girá-lo.`;
+  }
+  function fechar(){
+    ov.classList.remove('open'); pararMaos();
+    if(raf){cancelAnimationFrame(raf);raf=0;}
+  }
+  document.getElementById('holoClose').addEventListener('click',fechar);
+  document.getElementById('holoHandsBtn').addEventListener('click',()=>{handsOn?pararMaos():iniciarMaos();});
+  async function gerarDoCampo(){
+    const v=inp.value.trim(); if(!v) return; inp.value='';
+    const msg=await abrirHolograma(v); if(msg) addEntry('JARVIS',msg);
+  }
+  document.getElementById('holoGo').addEventListener('click',gerarDoCampo);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')gerarDoCampo();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ov.classList.contains('open'))fechar();});
+  window.abrirHolograma=abrirHolograma;
 })();
 </script>
 </body>
