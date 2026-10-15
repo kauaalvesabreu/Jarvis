@@ -967,7 +967,7 @@ body.gamer-mode .projection-cone{
 
       <div class="notice">
         Este painel já <b>ouve, responde qualquer pergunta com IA, fala de volta e reconhece objetos pela câmera</b>, direto no navegador.
-        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão E · hologramas ajustáveis</span>
+        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão G · revisão visual por IA</span>
       </div>
     </div>
 
@@ -1008,6 +1008,8 @@ body.gamer-mode .projection-cone{
     <button id="holoGo">GERAR NOVO</button>
     <button id="holoAdjust">AJUSTAR</button>
     <button id="holoMore">+ DETALHES</button>
+    <button id="holoRev">REVISÃO: ON</button>
+    <button id="holoPrev">VERSÃO ANTERIOR</button>
     <button id="holoHandsBtn">MÃOS ON/OFF</button>
     <button id="holoClose">FECHAR</button>
   </div>
@@ -1619,7 +1621,7 @@ async function perguntarGemini(question, opts){
     }
     return JSON.stringify({
       systemInstruction: { parts: [{ text: opts.system || (JARVIS_SYSTEM_PROMPT + contextoAgora()) }] },
-      contents: [{ role: 'user', parts: [{ text: question }] }],
+      contents: [{ role: 'user', parts: [...((opts.images || []).map(d => ({ inlineData: { mimeType: 'image/jpeg', data: d } }))), { text: question }] }],
       ...(Object.keys(gc).length ? { generationConfig: gc } : {})
     });
   };
@@ -2145,7 +2147,7 @@ askJarvis = async function(question){
   const inp=document.getElementById('holoInput');
   const COR=0x45e8ff;
 
-  let atual=null,renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
+  let anterior=null,ocupado=false,revisaoOn=(function(){try{return localStorage.getItem('jarvis_holo_revisao')!=='0';}catch(e){return true;}})(),atual=null,renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
   let rotXv=0,rotYv=0.004,scaleT=1,scaleC=1,maoAtiva=false,lastPalm=null,lastDist=null;
   let handsModel=null,handsOn=false,stream=null,lineMat=null,fillMat=null;
 
@@ -2185,6 +2187,7 @@ askJarvis = async function(question){
     {re:/\b(foguete|nave)\b/, f:()=>[{"t":"lathe","pf":[[0,2.9],[0.1,2.75],[0.22,2.4],[0.33,1.9],[0.4,1.4],[0.43,0.9],[0.43,-1.2],[0.4,-1.35]],"seg":28},{"t":"lathe","pf":[[0.2,-1.3],[0.22,-1.55],[0.34,-2.0],[0.31,-2.0],[0.18,-1.6]],"seg":20},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,1.2,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,0.4,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,-0.4,0]},{"t":"torus","s":[0.435,0.012],"r":[90,0,0],"p":[0,-1.1,0]},{"t":"torus","s":[0.15,0.02],"p":[0,1.5,0.41],"c":"w"},{"t":"sphere","s":[0.12,0.12,0.03],"p":[0,1.5,0.4],"c":"w"},{"t":"extrude","poly":[[0.4,0.1],[1.05,-0.95],[1.05,-1.55],[0.4,-1.2]],"d":0.06,"m":"x"},{"t":"extrude","poly":[[0.4,0.1],[1.05,-0.95],[1.05,-1.55],[0.4,-1.2]],"d":0.06,"r":[0,90,0],"m":"z"},{"t":"cone","s":[0.18,0.6],"seg":12,"p":[0,-2.2,0],"r":[180,0,0],"c":"a"},{"t":"cone","s":[0.1,0.9],"seg":10,"p":[0,-2.45,0],"r":[180,0,0],"c":"a"},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[0.3111269837220809,0.4,0.31112698372208086]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[-0.31112698372208086,0.4,0.3111269837220809]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[-0.311126983722081,0.4,-0.31112698372208086]},{"t":"cylinder","s":[0.04,1.0],"seg":6,"p":[0.31112698372208086,0.4,-0.311126983722081]}]},
     {re:/\b(casa|predio|lar)\b/, f:()=>[{"t":"box","s":[2.6,1.3,1.9],"p":[0,0.65,0]},{"t":"extrude","poly":[[-1.5,0],[1.5,0],[0,0.95]],"d":2.2,"p":[0,1.3,0]},{"t":"box","s":[0.45,0.9,0.05],"p":[0,0.45,0.96]},{"t":"box","s":[0.5,0.04,0.35],"p":[0,0.02,1.15]},{"t":"box","s":[0.04,0.04,0.04],"p":[0.15,0.5,1.0],"c":"a"},{"t":"box","s":[0.42,0.42,0.05],"p":[0.8,0.8,0.96],"m":"x","c":"w"},{"t":"box","s":[0.03,0.42,0.06],"p":[0.8,0.8,0.96],"m":"x"},{"t":"box","s":[0.42,0.03,0.06],"p":[0.8,0.8,0.96],"m":"x"},{"t":"box","s":[0.05,0.42,0.42],"p":[1.31,0.8,0.0],"m":"x","c":"w"},{"t":"box","s":[0.22,0.7,0.22],"p":[0.7,2.05,-0.3]},{"t":"box","s":[0.3,0.06,0.3],"p":[0.7,2.4,-0.3]},{"t":"extrude","poly":[[-0.28,0],[0.28,0],[0,0.4]],"d":0.05,"p":[0,1.3,1.09],"c":"w"},{"t":"box","s":[0.16,0.06,0.16],"p":[0,1.6,0.0],"c":"a"}]},
     {re:/\b(robo|android)\b/, f:()=>[{t:'box',p:[0,0,0],s:[.9,1.1,.5]},{t:'box',p:[0,.95,0],s:[.6,.5,.5]},{t:'sphere',p:[.15,1,.26],s:[.07]},{t:'sphere',p:[-.15,1,.26],s:[.07]},{t:'cylinder',p:[0,1.35,0],s:[.02,.3]},{t:'sphere',p:[0,1.55,0],s:[.06]},{t:'box',p:[.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[-.7,.1,0],s:[.2,.9,.2]},{t:'box',p:[.25,-1,0],s:[.3,.9,.3]},{t:'box',p:[-.25,-1,0],s:[.3,.9,.3]}]},
+    {re:/\b(caca|aviao militar|jato militar|aviao de (guerra|combate|caca)|aeronave militar|jato de combate|aviao de combate)\b/, f:()=>[{"t":"lathe","pf":[[0,3.6],[0.08,3.4],[0.2,2.9],[0.34,2.3],[0.42,1.6],[0.46,0.8],[0.46,-0.8],[0.42,-1.6],[0.34,-2.4],[0.3,-2.9]],"seg":20,"r":[0,0,-90]},{"t":"sphere","s":[0.75,0.2,0.24],"p":[1.5,0.4,0],"c":"w"},{"t":"box","s":[1.5,0.07,0.18],"p":[-0.5,0.47,0]},{"t":"extrude","poly":[[1.0,0.4],[-0.8,2.6],[-1.5,2.6],[-1.8,0.4]],"d":0.05,"r":[90,0,0],"p":[0,-0.05,0],"m":"z"},{"t":"extrude","poly":[[2.4,0.2],[0.9,1.0],[0.9,0.2]],"d":0.04,"r":[90,0,0],"p":[0,-0.02,0],"m":"z"},{"t":"extrude","poly":[[-1.9,0.4],[-2.7,1.5],[-3.1,1.5],[-3.0,0.4]],"d":0.05,"r":[90,0,0],"p":[0,-0.02,0],"m":"z"},{"t":"extrude","poly":[[-1.4,0],[-2.4,1.3],[-2.9,1.3],[-2.6,0]],"d":0.05,"r":[18,0,0],"p":[0,0.4,0.3],"m":"z"},{"t":"lathe","pf":[[0.24,0.4],[0.28,0.2],[0.3,0],[0.26,-0.35],[0.31,-0.5]],"seg":16,"r":[0,0,-90],"p":[-3.0,0,0.25],"m":"z"},{"t":"cone","s":[0.2,0.8],"seg":12,"r":[0,0,90],"p":[-3.9,0,0.25],"m":"z","c":"a"},{"t":"box","s":[0.9,0.32,0.3],"p":[0.9,-0.12,0.5],"m":"z"},{"t":"box","s":[0.05,0.26,0.24],"p":[1.37,-0.12,0.5],"m":"z","c":"w"},{"t":"box","s":[0.12,0.2,0.1],"p":[0.0,-0.25,1.5],"m":"z"},{"t":"capsule","s":[0.06,0.9],"p":[0.0,-0.42,1.5],"r":[0,0,90],"m":"z","c":"w"},{"t":"capsule","s":[0.05,0.8],"p":[-1.2,-0.03,2.65],"r":[0,0,90],"m":"z","c":"w"},{"t":"capsule","s":[0.14,1.0],"p":[0.0,-0.55,0],"r":[0,0,90]},{"t":"box","s":[0.1,0.18,0.1],"p":[0.0,-0.42,0]},{"t":"cylinder","s":[0.015,0.5],"seg":6,"r":[0,0,90],"p":[3.85,0,0],"c":"w"},{"t":"box","s":[0.2,0.04,0.04],"p":[-0.78,-0.03,2.62],"m":"z","c":"a"}]},
     {re:/\b(aviao|jato)\b/, f:()=>[{"t":"lathe","pf":[[0,2.8],[0.18,2.65],[0.34,2.2],[0.42,1.6],[0.45,1.0],[0.45,-1.4],[0.36,-2.3],[0.18,-2.9],[0.05,-3.1]],"seg":24,"r":[0,0,-90]},{"t":"extrude","poly":[[0.7,0.38],[-0.5,3.4],[-1.05,3.4],[-0.85,0.38]],"d":0.07,"r":[90,0,0],"p":[0,-0.12,0],"m":"z"},{"t":"extrude","poly":[[-2.1,0.4],[-3.0,1.6],[-3.4,1.6],[-3.0,0.4]],"d":0.07},{"t":"extrude","poly":[[-2.5,0.3],[-3.1,1.3],[-3.45,1.3],[-3.1,0.3]],"d":0.06,"r":[90,0,0],"p":[0,0.15,0],"m":"z"},{"t":"lathe","pf":[[0.16,0.45],[0.2,0.38],[0.2,-0.35],[0.15,-0.5]],"seg":14,"r":[0,0,-90],"p":[0.25,-0.34,1.3],"m":"z"},{"t":"lathe","pf":[[0.16,0.45],[0.2,0.38],[0.2,-0.35],[0.15,-0.5]],"seg":14,"r":[0,0,-90],"p":[-0.1,-0.34,2.4],"m":"z"},{"t":"torus","s":[0.15,0.02],"r":[0,90,0],"p":[0.7,-0.34,1.3],"m":"z","c":"w"},{"t":"torus","s":[0.15,0.02],"r":[0,90,0],"p":[0.35,-0.34,2.4],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[1.25,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[1.06,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.87,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.6799999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.49,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.30000000000000004,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[0.10999999999999988,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.08000000000000007,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.27,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.45999999999999996,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.6499999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-0.8399999999999999,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-1.0300000000000002,0.12,0.44],"m":"z","c":"w"},{"t":"box","s":[0.1,0.07,0.03],"p":[-1.2200000000000002,0.12,0.44],"m":"z","c":"w"},{"t":"extrude","poly":[[2.3,0.1],[2.55,0.3],[2.15,0.34],[1.95,0.1]],"d":0.62,"c":"w"},{"t":"box","s":[0.2,0.05,0.05],"p":[-0.78,-0.1,3.42],"m":"z","c":"a"}]},
     {re:/\b(arvore)\b/, f:()=>[cil([0,-.6,0],.12,.8),{t:'cone',p:[0,.1,0],s:[.7,.9]},{t:'cone',p:[0,.7,0],s:[.55,.8]},{t:'cone',p:[0,1.2,0],s:[.4,.7]}]},
     {re:/\b(mesa)\b/, f:()=>[{t:'box',p:[0,.4,0],s:[1.8,.1,1]},{t:'box',p:[.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,.4],s:[.1,.9,.1]},{t:'box',p:[.8,-.1,-.4],s:[.1,.9,.1]},{t:'box',p:[-.8,-.1,-.4],s:[.1,.9,.1]}]}
@@ -2338,6 +2341,7 @@ askJarvis = async function(question){
 
   function mostrar(partes,nome){
     if(modelo){scene.remove(modelo);}
+    anterior=(atual&&atual.nome===nome&&atual.partes!==partes)?atual:null;
     atual={nome,partes};
     const rotAnt=modelo?{x:modelo.rotation.x,y:modelo.rotation.y}:null;
     modelo=construir(partes); modelo.rotation.set(rotAnt?rotAnt.x:.25,rotAnt?rotAnt.y:0,0); if(!rotAnt){scaleT=scaleC=1;} rotYv=.01;
@@ -2446,8 +2450,8 @@ Exemplo 1 (cachorro, estilo orgânico): ${JSON.stringify(EXEMPLO_CAO)}
 Exemplo 2 (trecho de um carro): [{"t":"extrude","poly":[[-2.2,0],[2.2,0],[2.2,0.55],[1.5,0.7],[0.8,1.15],[-0.9,1.15],[-1.6,0.75],[-2.2,0.65]],"d":1.7,"p":[0,0.3,0]},{"t":"lathe","pf":[[0.15,-0.15],[0.4,-0.15],[0.45,-0.05],[0.45,0.05],[0.4,0.15],[0.15,0.15]],"seg":20,"r":[90,0,0],"p":[1.4,0.42,0.9],"m":"xz"},{"t":"box","s":[0.05,0.14,0.4],"p":[2.2,0.75,0.55],"m":"z","c":"a"}]
 Os exemplos mostram só o formato e o estilo. Faça um modelo MUITO mais completo de "${nome}".`;
   }
-  function promptAjuste(nome,partes,instrucao){
-    return `Este é o modelo 3D atual de "${nome}" (JSON): ${JSON.stringify({partes})}
+  function promptAjuste(nome,partes,instrucao,comImagens){
+    return `${comImagens?'As 4 imagens anexas mostram o modelo atual (1: vista 3/4, 2: lateral com a frente à direita, 3: frente, 4: de cima). ':''}Este é o modelo 3D atual de "${nome}" (JSON): ${JSON.stringify({partes})}
 
 Aplique esta instrução: "${instrucao}".
 Devolva o modelo COMPLETO atualizado, no mesmo formato JSON {"plano":"o que você mudou","nome":"...","partes":[...]}, mantendo o que já está bom e corrigindo/adicionando o que foi pedido. Mantenha de 40 a 120 partes.
@@ -2466,11 +2470,11 @@ ${REGRAS_3D}`;
     if(k>0){ try{ return JSON.parse(t.slice(0,k+1)+']}'); }catch(e){} }
     throw new Error('json inválido');
   }
-  async function chamarIA3D(prompt){
+  async function chamarIA3D(prompt,imagens){
     let ultimo;
     for(let tentativa=0;tentativa<2;tentativa++){
       try{
-        const txt=await perguntarIA(prompt,{system:SISTEMA_3D,json:true});
+        const txt=await perguntarIA(prompt,{system:SISTEMA_3D,json:true,...(imagens?{images:imagens}:{})});
         const j=parseTolerante(txt);
         const partes=limparPartes(j.partes);
         if(partes.length<4) throw new Error('modelo pobre');
@@ -2540,6 +2544,7 @@ ${REGRAS_3D}`;
       }
       setStatus('PRONTO. MOSTRE AS MÃOS PARA A CÂMERA PARA GIRAR.');
       iniciarMaos();
+      if(r.origem==='ia'){ const ref=r.partes; setTimeout(()=>revisarVisual(nome,ref),900); }
       if(r.origem==='basico') return `A IA não conseguiu detalhar ${nome} agora, senhor, então projetei o modelo básico. Mova as mãos diante da câmera para girá-lo.`;
       return `Holograma de ${nome} projetado, senhor. Mova as mãos diante da câmera para girá-lo.`;
     }catch(e){
@@ -2549,19 +2554,76 @@ ${REGRAS_3D}`;
       return m;
     }
   }
-  let ocupado=false;
   async function ajustar(instrucao){
     if(!atual){ setStatus('GERE UM HOLOGRAMA PRIMEIRO.'); return; }
     if(ocupado) return; ocupado=true;
     const t0=Date.now();
     const tk=setInterval(()=>setStatus('A IA ESTÁ AJUSTANDO "'+atual.nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
     try{
-      const partes=await Promise.race([chamarIA3D(promptAjuste(atual.nome,atual.partes,instrucao)),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
+      let imgs=null; try{ if(usandoGemini()) imgs=capturar(); }catch(e){}
+      const partes=await Promise.race([chamarIA3D(promptAjuste(atual.nome,atual.partes,instrucao,!!imgs),imgs),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
       const nome=atual.nome;
       mostrar(partes,nome); salvarCache(norm(nome),partes);
       setStatus('AJUSTE APLICADO. USE AJUSTAR DE NOVO PARA CONTINUAR MELHORANDO.');
     }catch(e){
       setStatus((e&&e.tipo==='gemini'?mensagemErroIA(e):'NÃO CONSEGUI APLICAR O AJUSTE AGORA. TENTE DE NOVO.').toUpperCase());
+    }finally{ clearInterval(tk); ocupado=false; }
+  }
+  // ---------- Revisão visual: a IA olha o próprio modelo e corrige ----------
+  function capturar(){
+    const W=renderer.domElement.width,H=renderer.domElement.height,lado=Math.min(W,H);
+    const sx=(W-lado)/2,sy=(H-lado)/2;
+    const r0={x:modelo.rotation.x,y:modelo.rotation.y},sc0=modelo.scale.x;
+    const vis=[anel.visible,particulas.visible]; anel.visible=false; particulas.visible=false;
+    const tmp=document.createElement('canvas'); tmp.width=tmp.height=512;
+    const c2=tmp.getContext('2d'), imgs=[];
+    try{
+      [[0.3,-0.6],[0,0],[0,Math.PI/2],[1.25,0]].forEach(v=>{
+        modelo.rotation.set(v[0],v[1],0); modelo.scale.setScalar(1);
+        renderer.render(scene,camera);
+        c2.fillStyle='#04121a'; c2.fillRect(0,0,512,512);
+        c2.drawImage(renderer.domElement,sx,sy,lado,lado,0,0,512,512);
+        imgs.push(tmp.toDataURL('image/jpeg',0.82).split(',')[1]);
+      });
+    }finally{
+      modelo.rotation.set(r0.x,r0.y,0); modelo.scale.setScalar(sc0);
+      anel.visible=vis[0]; particulas.visible=vis[1];
+    }
+    return imgs;
+  }
+  function promptRevisao(nome,partes){
+    return `Você está revisando um modelo 3D wireframe de "${nome}". As 4 imagens anexas mostram o modelo atual: 1) vista 3/4; 2) vista lateral (a frente do objeto aponta para a direita); 3) vista de frente; 4) vista de cima.
+JSON atual do modelo: ${JSON.stringify({partes})}
+
+Seja um crítico exigente. Verifique, olhando as imagens:
+1. Dá para reconhecer imediatamente que é "${nome}"? Se não, o que falta ou está errado?
+2. As proporções estão corretas? (comprimento x altura x largura, tamanho de cada peça em relação ao todo)
+3. Há peças flutuando, soltas, desconectadas, atravessando o corpo ou grandes demais?
+4. Faltam detalhes importantes que definem o objeto?
+Depois devolva o modelo COMPLETO corrigido, no formato {"avaliacao":"resumo curto dos problemas encontrados e corrigidos","nota":numero de 0 a 10 do modelo ORIGINAL,"nome":"...","partes":[...]}. Se o modelo original já estiver ótimo (nota 9 ou mais), devolva as mesmas partes. Mantenha de 40 a 120 partes.
+
+${REGRAS_3D}`;
+  }
+  async function revisarVisual(nome,partes){
+    if(!revisaoOn||!usandoGemini()||ocupado||!modelo||!atual||atual.partes!==partes) return;
+    ocupado=true;
+    const t0=Date.now();
+    const tk=setInterval(()=>setStatus('REVISÃO VISUAL: A IA ESTÁ OLHANDO O PRÓPRIO MODELO... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
+    try{
+      const imgs=capturar();
+      const txt=await Promise.race([perguntarIA(promptRevisao(nome,partes),{system:SISTEMA_3D,json:true,images:imgs}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
+      const j=parseTolerante(txt);
+      const novas=limparPartes(j.partes);
+      const nota=Number(j.nota);
+      if(!atual||atual.partes!==partes){ return; }   // o usuário já pediu outra coisa
+      if(novas.length>=4 && !(nota>=9)){
+        mostrar(novas,nome); salvarCache(norm(nome),novas);
+        setStatus('REVISÃO CONCLUÍDA (NOTA ANTERIOR '+(Number.isFinite(nota)?nota:'?')+'/10). USE "VERSÃO ANTERIOR" SE PREFERIR O ORIGINAL.');
+      } else {
+        setStatus('REVISÃO CONCLUÍDA: O MODELO JÁ ESTAVA BOM'+(Number.isFinite(nota)?' (NOTA '+nota+'/10)':'')+'.');
+      }
+    }catch(e){
+      setStatus('REVISÃO VISUAL INDISPONÍVEL AGORA. MANTIVE O MODELO ORIGINAL.');
     }finally{ clearInterval(tk); ocupado=false; }
   }
   function fechar(){
@@ -2576,6 +2638,10 @@ ${REGRAS_3D}`;
   }
   document.getElementById('holoGo').addEventListener('click',gerarDoCampo);
   document.getElementById('holoAdjust').addEventListener('click',()=>{ const v=inp.value.trim(); if(!v){ setStatus('DIGITE O AJUSTE NO CAMPO. EX.: DEIXE MAIS LONGO, ADICIONE UMA ANTENA'); return; } inp.value=''; ajustar(v); });
+  const revBtn=document.getElementById('holoRev');
+  revBtn.textContent='REVISÃO: '+(revisaoOn?'ON':'OFF');
+  revBtn.addEventListener('click',()=>{ revisaoOn=!revisaoOn; revBtn.textContent='REVISÃO: '+(revisaoOn?'ON':'OFF'); try{localStorage.setItem('jarvis_holo_revisao',revisaoOn?'1':'0');}catch(e){} setStatus(revisaoOn?'REVISÃO VISUAL AUTOMÁTICA LIGADA (USA 2 PEDIDOS DA IA POR HOLOGRAMA).':'REVISÃO VISUAL AUTOMÁTICA DESLIGADA.'); });
+  document.getElementById('holoPrev').addEventListener('click',()=>{ if(!anterior){ setStatus('NÃO HÁ VERSÃO ANTERIOR DESTE HOLOGRAMA.'); return; } const a=anterior; mostrar(a.partes,a.nome); setStatus('TROCADO PARA A OUTRA VERSÃO. CLIQUE DE NOVO PARA VOLTAR.'); });
   document.getElementById('holoMore').addEventListener('click',()=>ajustar('Adicione mais detalhes realistas e corrija as proporções, deixando o modelo mais completo e fiel ao objeto real.'));
   inp.addEventListener('keydown',e=>{if(e.key==='Enter')gerarDoCampo();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ov.classList.contains('open'))fechar();});
