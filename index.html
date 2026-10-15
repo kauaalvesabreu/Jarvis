@@ -964,10 +964,11 @@ body.gamer-mode .projection-cone{
       </div>
 
       <button class="vision-btn" id="openVisionBtn">◎ ATIVAR VISÃO</button>
+      <button class="vision-btn" id="openHoloBtn">◈ HOLOGRAMA (FOTO OU OBJETO)</button>
 
       <div class="notice">
         Este painel já <b>ouve, responde qualquer pergunta com IA, fala de volta e reconhece objetos pela câmera</b>, direto no navegador.
-        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão G · revisão visual por IA</span>
+        Abrir apps do PC, WhatsApp, e-mail e luzes RGB dependem do módulo companion (opcional), instalado no seu próprio Windows. <span style="opacity:.6">Versão H · foto para holograma</span>
       </div>
     </div>
 
@@ -1007,6 +1008,8 @@ body.gamer-mode .projection-cone{
     <input type="text" id="holoInput" placeholder="Objeto novo (ex.: dragão) ou, para AJUSTAR: deixe mais longo..." autocomplete="off">
     <button id="holoGo">GERAR NOVO</button>
     <button id="holoAdjust">AJUSTAR</button>
+    <button id="holoPhoto">📷 FOTO → HOLOGRAMA</button>
+    <input type="file" id="holoFile" accept="image/*" style="display:none">
     <button id="holoMore">+ DETALHES</button>
     <button id="holoRev">REVISÃO: ON</button>
     <button id="holoPrev">VERSÃO ANTERIOR</button>
@@ -1312,6 +1315,8 @@ function detectarComando(texto){
     return { tipo: 'briefing' };
   }
 
+  // "holograma de uma foto" / "holograma a partir de uma imagem" -> abre o painel para escolher a foto
+  if(/(holograma|modelo\s*3d).*(foto|imagem|fotografia)|(foto|imagem|fotografia).*(holograma|modelo\s*3d)/.test(t)){ return { tipo: 'holograma-foto' }; }
   // "crie um holograma de X" -> projeta um modelo 3D controlado pelas mãos
   const mh = t.match(/^(?:jarvis[,\s]+)?(?:cri[ae]r?|faz(?:er)?|fa[çc]a|ger[ae]r?|mostr[ae]r?|projet[ae]r?|monte|montar)\s+(?:para\s+mim\s+)?(?:um|uma|o|a|os|as)?\s*(?:holograma|modelo\s*3d|objeto\s*3d|hologram)\s*(?:de|do|da|d[eo]s?)?\s*(.*)$/);
   if(mh){ return { tipo: 'holograma', valor: mh[1].trim() }; }
@@ -1502,6 +1507,14 @@ async function askJarvis(question){
       const msg = `Abrindo ${comando.url.replace(/^https?:\/\//, '')}, senhor.`;
       addEntry('JARVIS', msg);
       speak(msg);
+      setCoreState('idle');
+      return;
+    }
+
+    if(comando.tipo === 'holograma-foto'){
+      window.abrirHologramaFoto();
+      const msgF = 'Painel de hologramas aberto, senhor. Clique em "Foto para holograma" e escolha a imagem do objeto.';
+      addEntry('JARVIS', msgF); speak(msgF);
       setCoreState('idle');
       return;
     }
@@ -2147,7 +2160,7 @@ askJarvis = async function(question){
   const inp=document.getElementById('holoInput');
   const COR=0x45e8ff;
 
-  let anterior=null,ocupado=false,revisaoOn=(function(){try{return localStorage.getItem('jarvis_holo_revisao')!=='0';}catch(e){return true;}})(),atual=null,renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
+  let fotoRef=null,anterior=null,ocupado=false,revisaoOn=(function(){try{return localStorage.getItem('jarvis_holo_revisao')!=='0';}catch(e){return true;}})(),atual=null,renderer,scene,camera,modelo=null,anel=null,particulas=null,raf=0,iniciado=false;
   let rotXv=0,rotYv=0.004,scaleT=1,scaleC=1,maoAtiva=false,lastPalm=null,lastDist=null;
   let handsModel=null,handsOn=false,stream=null,lineMat=null,fillMat=null;
 
@@ -2509,6 +2522,7 @@ ${REGRAS_3D}`;
   }
 
   async function abrirHolograma(nome){
+    fotoRef=null;
     nome=(nome||'').replace(/[.!?]+$/,'').trim().replace(/^(um|uma|o|a)\s+/i,'')||'cubo';
     ov.classList.add('open');
     nomeEl.textContent='HOLOGRAMA';
@@ -2560,7 +2574,7 @@ ${REGRAS_3D}`;
     const t0=Date.now();
     const tk=setInterval(()=>setStatus('A IA ESTÁ AJUSTANDO "'+atual.nome.toUpperCase()+'"... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
     try{
-      let imgs=null; try{ if(usandoGemini()) imgs=capturar(); }catch(e){}
+      let imgs=null; try{ if(usandoGemini()) imgs=(fotoRef?[fotoRef]:[]).concat(capturar()); }catch(e){}
       const partes=await Promise.race([chamarIA3D(promptAjuste(atual.nome,atual.partes,instrucao,!!imgs),imgs),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
       const nome=atual.nome;
       mostrar(partes,nome); salvarCache(norm(nome),partes);
@@ -2591,12 +2605,12 @@ ${REGRAS_3D}`;
     }
     return imgs;
   }
-  function promptRevisao(nome,partes){
-    return `Você está revisando um modelo 3D wireframe de "${nome}". As 4 imagens anexas mostram o modelo atual: 1) vista 3/4; 2) vista lateral (a frente do objeto aponta para a direita); 3) vista de frente; 4) vista de cima.
+  function promptRevisao(nome,partes,comFoto){
+    return `${comFoto?'A PRIMEIRA imagem anexa é a FOTO DE REFERÊNCIA do objeto real que o modelo deve reproduzir fielmente. ':''}Você está revisando um modelo 3D wireframe de "${nome}". ${comFoto?'As 4 imagens seguintes':'As 4 imagens anexas'} mostram o modelo atual: 1) vista 3/4; 2) vista lateral (a frente do objeto aponta para a direita); 3) vista de frente; 4) vista de cima.
 JSON atual do modelo: ${JSON.stringify({partes})}
 
 Seja um crítico exigente. Verifique, olhando as imagens:
-1. Dá para reconhecer imediatamente que é "${nome}"? Se não, o que falta ou está errado?
+1. ${comFoto?'O modelo reproduz fielmente a forma, as proporções e os detalhes do objeto da foto?':'Dá para reconhecer imediatamente que é "'+nome+'"?'} Se não, o que falta ou está errado?
 2. As proporções estão corretas? (comprimento x altura x largura, tamanho de cada peça em relação ao todo)
 3. Há peças flutuando, soltas, desconectadas, atravessando o corpo ou grandes demais?
 4. Faltam detalhes importantes que definem o objeto?
@@ -2610,8 +2624,8 @@ ${REGRAS_3D}`;
     const t0=Date.now();
     const tk=setInterval(()=>setStatus('REVISÃO VISUAL: A IA ESTÁ OLHANDO O PRÓPRIO MODELO... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
     try{
-      const imgs=capturar();
-      const txt=await Promise.race([perguntarIA(promptRevisao(nome,partes),{system:SISTEMA_3D,json:true,images:imgs}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
+      const imgs=(fotoRef?[fotoRef]:[]).concat(capturar());
+      const txt=await Promise.race([perguntarIA(promptRevisao(nome,partes,!!fotoRef),{system:SISTEMA_3D,json:true,images:imgs}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
       const j=parseTolerante(txt);
       const novas=limparPartes(j.partes);
       const nota=Number(j.nota);
@@ -2626,6 +2640,82 @@ ${REGRAS_3D}`;
       setStatus('REVISÃO VISUAL INDISPONÍVEL AGORA. MANTIVE O MODELO ORIGINAL.');
     }finally{ clearInterval(tk); ocupado=false; }
   }
+  async function garantirMotor(){
+    ov.classList.add('open');
+    if(!window.THREE){
+      setStatus('CARREGANDO MOTOR 3D...');
+      if(!(await carregarThree())){ setStatus('NÃO CONSEGUI BAIXAR O MOTOR 3D. VERIFIQUE A INTERNET.'); return false; }
+    }
+    try{ iniciarThree(); redim(); }catch(e){ setStatus('SEU NAVEGADOR NÃO CONSEGUIU INICIAR O 3D (WEBGL).'); return false; }
+    if(!raf) raf=requestAnimationFrame(loop);
+    return true;
+  }
+  function lerFoto(file){
+    return new Promise((ok,err)=>{
+      const url=URL.createObjectURL(file), im=new Image();
+      im.onload=()=>{
+        const k=Math.min(1,1024/Math.max(im.width,im.height));
+        const c=document.createElement('canvas'); c.width=Math.round(im.width*k); c.height=Math.round(im.height*k);
+        c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+        URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg',0.85).split(',')[1]);
+      };
+      im.onerror=()=>{URL.revokeObjectURL(url);err(new Error('foto inválida'));};
+      im.src=url;
+    });
+  }
+  function promptFoto(){
+    return `A imagem anexa é uma FOTO de um objeto real. Identifique o objeto principal (ignore o fundo e objetos secundários) e monte um modelo 3D wireframe DETALHADO que reproduza esse objeto o mais fielmente possível: a forma geral, as proporções reais, as peças características e os detalhes visíveis (cores não importam). Deduza as partes não visíveis por simetria e lógica. A frente do objeto aponta para +x e o topo para +y.
+
+Formato (JSON puro): {"plano":"2 a 4 frases com o que você identificou, as proporções e os componentes","nome":"nome curto do objeto em português","partes":[ ... ]}
+Escreva primeiro o "plano" e depois as "partes". Use entre 40 e 100 partes.
+
+${REGRAS_3D}
+
+Exemplo de estilo e formato (um cachorro): ${JSON.stringify(EXEMPLO_CAO)}
+O exemplo só mostra o formato. Reproduza o objeto da FOTO.`;
+  }
+  async function gerarDeFoto(file){
+    if(ocupado) return;
+    if(!usandoGemini()){
+      ov.classList.add('open'); setStatus('PARA USAR FOTOS, COLE A CHAVE GRATUITA DO GOOGLE EM CONFIGURAÇÕES.');
+      return 'Para analisar fotos preciso da chave gratuita do Google nas Configurações, senhor.';
+    }
+    if(!(await garantirMotor())) return 'Não consegui iniciar o motor 3D, senhor.';
+    ocupado=true;
+    let tk=null;
+    try{
+      setStatus('LENDO A FOTO...');
+      const b64=await lerFoto(file);
+      const t0=Date.now();
+      tk=setInterval(()=>setStatus('A IA ESTÁ ANALISANDO A FOTO E MODELANDO... '+Math.round((Date.now()-t0)/1000)+'s'),1000);
+      const txt=await Promise.race([perguntarIA(promptFoto(),{system:SISTEMA_3D,json:true,images:[b64]}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('tempo')),150000))]);
+      const j=parseTolerante(txt);
+      const partes=limparPartes(j.partes);
+      if(partes.length<4) throw new Error('modelo pobre');
+      const nome=String(j.nome||'objeto da foto').slice(0,40);
+      fotoRef=b64;
+      mostrar(partes,nome);
+      iniciarMaos();
+      setStatus('HOLOGRAMA CRIADO A PARTIR DA FOTO. A IA VAI REVISAR COMPARANDO COM A FOTO...');
+      ocupado=false;
+      setTimeout(()=>revisarVisual(nome,partes),900);
+      return 'Holograma criado a partir da sua foto, senhor: '+nome+'. Mova as mãos diante da câmera para girá-lo.';
+    }catch(e){
+      const m=(e&&e.tipo==='gemini')?mensagemErroIA(e):(String(e&&e.message)==='tempo'?'A IA demorou demais, senhor. Tente de novo.':'Não consegui transformar essa foto em holograma, senhor. Tente uma foto mais nítida, com o objeto inteiro e fundo simples.');
+      setStatus(m.toUpperCase());
+      return m;
+    }finally{ if(tk) clearInterval(tk); ocupado=false; }
+  }
+  function escolherFoto(){ document.getElementById('holoFile').click(); }
+  document.getElementById('holoPhoto').addEventListener('click',escolherFoto);
+  document.getElementById('holoFile').addEventListener('change',async e=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value=''; if(!f) return;
+    const msg=await gerarDeFoto(f); if(msg) addEntry('JARVIS',msg);
+  });
+  document.getElementById('openHoloBtn').addEventListener('click',async()=>{
+    if(await garantirMotor()){ setStatus(atual?'HOLOGRAMA ATUAL. USE 📷 FOTO → HOLOGRAMA OU DIGITE UM OBJETO.':'ESCOLHA UMA FOTO (📷) OU DIGITE UM OBJETO E CLIQUE EM GERAR NOVO.'); }
+  });
+  window.abrirHologramaFoto=()=>{ garantirMotor().then(ok=>{ if(ok) setStatus('CLIQUE EM 📷 FOTO → HOLOGRAMA PARA ESCOLHER A FOTO.'); }); };
   function fechar(){
     ov.classList.remove('open'); pararMaos();
     if(raf){cancelAnimationFrame(raf);raf=0;}
